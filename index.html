@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ひつじあつめ</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a2e1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100dvh;
+    overflow: hidden;
+    font-family: 'Klee One', cursive;
+    touch-action: none;
+  }
+
+  #ui {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: rgba(10,30,10,0.75);
+    backdrop-filter: blur(6px);
+    z-index: 10;
+    border-bottom: 1px solid rgba(120,200,80,0.2);
+  }
+
+  .ui-block { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .ui-label { font-size: 10px; color: rgba(180,230,120,0.7); letter-spacing: 0.08em; }
+  .ui-value { font-size: 20px; color: #c8f08a; font-weight: 600; line-height: 1; }
+
+  #timer-bar-wrap {
+    width: 120px; height: 6px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px; overflow: hidden;
+  }
+  #timer-bar {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #6fcf4a, #f0c040);
+    border-radius: 3px;
+    transition: background 0.5s;
+  }
+
+  #canvas-wrap {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 48px;
+  }
+
+  canvas {
+    display: block;
+    touch-action: none;
+  }
+
+  /* ジョイスティック */
+  #joystick-zone {
+    position: fixed;
+    bottom: 24px; left: 24px;
+    width: 120px; height: 120px;
+    display: none;
+    z-index: 20;
+  }
+  #joystick-base {
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(255,255,255,0.18);
+    position: relative;
+  }
+  #joystick-knob {
+    width: 50px; height: 50px;
+    border-radius: 50%;
+    background: rgba(200,240,140,0.7);
+    border: 2px solid rgba(255,255,255,0.4);
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    pointer-events: none;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  }
+
+  /* オーバーレイ */
+  #overlay {
+    position: fixed; inset: 0;
+    background: rgba(5,15,5,0.88);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 30;
+    gap: 20px;
+    backdrop-filter: blur(4px);
+  }
+  #overlay h1 {
+    font-size: clamp(32px, 8vw, 56px);
+    color: #c8f08a;
+    text-shadow: 0 0 40px rgba(100,220,60,0.4);
+    letter-spacing: 0.1em;
+  }
+  #overlay p {
+    color: rgba(200,240,140,0.75);
+    font-size: clamp(13px, 3vw, 17px);
+    text-align: center;
+    line-height: 1.8;
+    max-width: 340px;
+  }
+  #overlay .result-sheep {
+    font-size: clamp(28px, 7vw, 48px);
+    color: #f0e060;
+  }
+  #start-btn {
+    margin-top: 8px;
+    padding: 14px 40px;
+    background: linear-gradient(135deg, #4a9a2a, #6fcf4a);
+    border: none; border-radius: 40px;
+    color: #fff; font-size: 20px;
+    font-family: 'Klee One', cursive;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(80,200,60,0.35);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  #start-btn:active { transform: scale(0.95); }
+
+  #hint {
+    position: fixed;
+    bottom: 16px; right: 16px;
+    font-size: 11px;
+    color: rgba(180,230,120,0.5);
+    text-align: right;
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div class="ui-block">
+    <div class="ui-label">ひつじ</div>
+    <div class="ui-value" id="ui-sheep">0 / 0</div>
+  </div>
+  <div class="ui-block">
+    <div class="ui-label">タイム</div>
+    <div id="timer-bar-wrap"><div id="timer-bar"></div></div>
+    <div class="ui-value" id="ui-time">0:00</div>
+  </div>
+  <div class="ui-block">
+    <div class="ui-label">目標</div>
+    <div class="ui-value" id="ui-goal">-</div>
+  </div>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+</div>
+
+<div id="joystick-zone">
+  <div id="joystick-base"><div id="joystick-knob"></div></div>
+</div>
+
+<div id="hint">
+  PC: WASD / 矢印キー / マウスクリック<br>
+  スマホ: 左下のスティック
+</div>
+
+<div id="overlay">
+  <h1>🐑 ひつじあつめ</h1>
+  <p>犬を操作して、ひつじを全部柵の中に入れよう！<br>柵の入口に近づくとドアが閉まります。</p>
+  <button id="start-btn">はじめる</button>
+</div>
+
+<script>
+// =============================================
+//  CONFIG
+// =============================================
+const CFG = {
+  SHEEP_N: 12,
+  GOAL_N: 10,           // 目標頭数
+  TIME_LIMIT: 120,      // 秒
+  DOG_SPEED: 200,       // px/s
+  DOG_RADIUS: 14,
+
+  // Social Force Model パラメータ
+  SHEEP_MAX_SPEED: 140,
+  SHEEP_BASE_SPEED: 18,
+  SHEEP_RADIUS: 10,
+
+  // 犬から逃げる力
+  DOG_REPULSION_RANGE: 160,
+  DOG_REPULSION_STRENGTH: 420,
+
+  // 群れ行動
+  FLOCK_RANGE: 120,
+  FLOCK_STRENGTH: 18,
+
+  // 個人間反発
+  SHEEP_REPULSION_RANGE: 28,
+  SHEEP_REPULSION_STRENGTH: 160,
+
+  // 留まろうとする慣性
+  INERTIA: 0.88,
+
+  // ゴール引力
+  GOAL_ATTRACTION: 6,
+  GOAL_ATTRACTION_RANGE: 300,
+
+  // 壁反発
+  WALL_RANGE: 30,
+  WALL_STRENGTH: 300,
+};
+
+// =============================================
+//  CANVAS SETUP
+// =============================================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H, SCALE;
+const BASE_W = 900, BASE_H = 600;
+
+function resize() {
+  const wrap = document.getElementById('canvas-wrap');
+  const aw = wrap.clientWidth;
+  const ah = wrap.clientHeight;
+  SCALE = Math.min(aw / BASE_W, ah / BASE_H);
+  W = BASE_W; H = BASE_H;
+  canvas.width = Math.floor(BASE_W * SCALE);
+  canvas.height = Math.floor(BASE_H * SCALE);
+  canvas.style.width = canvas.width + 'px';
+  canvas.style.height = canvas.height + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+// =============================================
+//  FIELD LAYOUT
+// =============================================
+// 柵エリア（右側）
+const PEN = { x: 630, y: 140, w: 220, h: 280 };
+const DOOR = { x: PEN.x, y: PEN.y + PEN.h/2 - 30, w: 18, h: 60 };
+const DOOR_TRIGGER_DIST = 40; // 犬がこの距離以内でドアが閉まる
+
+// 木・障害物
+const TREES = [
+  { x: 120, y: 100, r: 22 },
+  { x: 300, y: 200, r: 18 },
+  { x: 180, y: 380, r: 20 },
+  { x: 450, y: 120, r: 16 },
+  { x: 500, y: 420, r: 19 },
+  { x: 80,  y: 480, r: 17 },
+  { x: 380, y: 480, r: 21 },
+];
+
+// 池
+const PONDS = [
+  { x: 240, y: 300, rx: 55, ry: 35 },
+];
+
+// =============================================
+//  STATE
+// =============================================
+let state = 'title'; // title | playing | success | fail
+let dog, sheep, timer, elapsed, doorClosed, sheepInPen;
+let goalPoint; // ひつじが引き寄せられるランダムなゴール（柵の中）
+
+// 入力
+const keys = {};
+let mouseTarget = null;
+let joystickActive = false;
+let joystickDX = 0, joystickDY = 0;
+
+// =============================================
+//  INIT GAME
+// =============================================
+function initGame() {
+  dog = {
+    x: 100, y: H / 2,
+    vx: 0, vy: 0,
+  };
+
+  // ランダムゴール（柵の中央付近）
+  goalPoint = {
+    x: PEN.x + PEN.w * 0.4 + Math.random() * PEN.w * 0.4,
+    y: PEN.y + PEN.h * 0.3 + Math.random() * PEN.h * 0.4,
+  };
+
+  sheep = [];
+  for (let i = 0; i < CFG.SHEEP_N; i++) {
+    // 左側のフィールドにランダム配置（柵・木・池を避けてざっくり）
+    let sx, sy;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      sx = 60 + Math.random() * 520;
+      sy = 60 + Math.random() * (H - 120);
+      if (!insidePen(sx, sy) && !nearTree(sx, sy, 30)) break;
+    }
+    sheep.push({
+      x: sx, y: sy,
+      vx: (Math.random() - 0.5) * 10,
+      vy: (Math.random() - 0.5) * 10,
+      // 個体差パラメータ
+      timidity: 0.6 + Math.random() * 0.8,    // 臆病さ
+      flocking: 0.5 + Math.random() * 0.8,    // 群れ傾向
+      wanderlust: 0.2 + Math.random() * 0.6,  // ゴール引力への感度
+      inertia: 0.82 + Math.random() * 0.12,   // 留まろうとする慣性
+      // 見た目
+      woolColor: `hsl(${40 + Math.random()*30}, ${10+Math.random()*20}%, ${88+Math.random()*10}%)`,
+      size: 0.85 + Math.random() * 0.3,
+      eyeDir: Math.random() * Math.PI * 2,
+      frameOffset: Math.random() * 60,
+    });
+  }
+
+  timer = CFG.TIME_LIMIT;
+  elapsed = 0;
+  doorClosed = false;
+  sheepInPen = 0;
+  state = 'playing';
+  updateUI();
+}
+
+function insidePen(x, y) {
+  return x > PEN.x && x < PEN.x + PEN.w && y > PEN.y && y < PEN.y + PEN.h;
+}
+function nearTree(x, y, margin) {
+  return TREES.some(t => Math.hypot(x - t.x, y - t.y) < t.r + margin);
+}
+function nearPond(x, y, margin) {
+  return PONDS.some(p => {
+    const dx = (x - p.x) / (p.rx + margin);
+    const dy = (y - p.y) / (p.ry + margin);
+    return dx*dx + dy*dy < 1;
+  });
+}
+
+// =============================================
+//  SOCIAL FORCE MODEL
+// =============================================
+function updateSheep(dt, dogVx, dogVy) {
+  const dogSpeed = Math.hypot(dogVx, dogVy);
+
+  sheep.forEach((s, i) => {
+    let fx = 0, fy = 0;
+
+    // --- 1. 犬から逃げる ---
+    const ddx = s.x - dog.x;
+    const ddy = s.y - dog.y;
+    const ddist = Math.hypot(ddx, ddy);
+    if (ddist < CFG.DOG_REPULSION_RANGE && ddist > 0.1) {
+      // 犬の速度に比例して逃げる（止まると弱くなる）
+      const speedFactor = Math.min(dogSpeed / 80, 1.0);
+      const strength = CFG.DOG_REPULSION_STRENGTH * s.timidity
+        * speedFactor
+        * (1 - ddist / CFG.DOG_REPULSION_RANGE);
+      fx += (ddx / ddist) * strength;
+      fy += (ddy / ddist) * strength;
+    }
+
+    // --- 2. 群れ行動（近くの羊に引き寄せられる）---
+    let cx = 0, cy = 0, cnt = 0;
+    sheep.forEach((other, j) => {
+      if (i === j) return;
+      const ox = other.x - s.x;
+      const oy = other.y - s.y;
+      const od = Math.hypot(ox, oy);
+      if (od < CFG.FLOCK_RANGE && od > 0.1) {
+        cx += ox / od * (1 - od / CFG.FLOCK_RANGE);
+        cy += oy / od * (1 - od / CFG.FLOCK_RANGE);
+        cnt++;
+      }
+    });
+    if (cnt > 0) {
+      fx += cx * CFG.FLOCK_STRENGTH * s.flocking;
+      fy += cy * CFG.FLOCK_STRENGTH * s.flocking;
+    }
+
+    // --- 3. 羊どうしの反発（パーソナルスペース）---
+    sheep.forEach((other, j) => {
+      if (i === j) return;
+      const ox = s.x - other.x;
+      const oy = s.y - other.y;
+      const od = Math.hypot(ox, oy);
+      if (od < CFG.SHEEP_REPULSION_RANGE && od > 0.1) {
+        const str = CFG.SHEEP_REPULSION_STRENGTH * (1 - od / CFG.SHEEP_REPULSION_RANGE);
+        fx += (ox / od) * str;
+        fy += (oy / od) * str;
+      }
+    });
+
+    // --- 4. ゴール引力（ランダムな方向への欲求）---
+    const gx = goalPoint.x - s.x;
+    const gy = goalPoint.y - s.y;
+    const gd = Math.hypot(gx, gy);
+    if (gd < CFG.GOAL_ATTRACTION_RANGE && gd > 0.1) {
+      const str = CFG.GOAL_ATTRACTION * s.wanderlust * (gd / CFG.GOAL_ATTRACTION_RANGE);
+      fx += (gx / gd) * str;
+      fy += (gy / gd) * str;
+    }
+
+    // --- 5. 壁・境界反発 ---
+    // フィールド端
+    if (s.x < CFG.WALL_RANGE) fx += CFG.WALL_STRENGTH * (1 - s.x / CFG.WALL_RANGE);
+    if (s.x > W - CFG.WALL_RANGE) fx -= CFG.WALL_STRENGTH * (1 - (W - s.x) / CFG.WALL_RANGE);
+    if (s.y < CFG.WALL_RANGE) fy += CFG.WALL_STRENGTH * (1 - s.y / CFG.WALL_RANGE);
+    if (s.y > H - CFG.WALL_RANGE) fy -= CFG.WALL_STRENGTH * (1 - (H - s.y) / CFG.WALL_RANGE);
+
+    // 木
+    TREES.forEach(t => {
+      const tx = s.x - t.x, ty = s.y - t.y;
+      const td = Math.hypot(tx, ty);
+      const avoidR = t.r + CFG.SHEEP_RADIUS + CFG.WALL_RANGE;
+      if (td < avoidR && td > 0.1) {
+        const str = CFG.WALL_STRENGTH * (1 - td / avoidR);
+        fx += (tx / td) * str;
+        fy += (ty / td) * str;
+      }
+    });
+
+    // 池
+    PONDS.forEach(p => {
+      const px = (s.x - p.x) / p.rx;
+      const py = (s.y - p.y) / p.ry;
+      const pd = Math.hypot(px, py);
+      if (pd < 1.4 && pd > 0.01) {
+        const nx = px / pd / p.rx;
+        const ny = py / pd / p.ry;
+        const nd = Math.hypot(nx, ny);
+        fx += (nx/nd) * CFG.WALL_STRENGTH * (1 - pd / 1.4);
+        fy += (ny/nd) * CFG.WALL_STRENGTH * (1 - pd / 1.4);
+      }
+    });
+
+    // 柵の壁（ドアが閉まるまではドア部分を開ける）
+    if (!doorClosed) {
+      // 柵の左壁（ドア部分以外）
+      if (s.x > PEN.x - CFG.WALL_RANGE && s.x < PEN.x + 5) {
+        const inDoorGap = s.y > DOOR.y && s.y < DOOR.y + DOOR.h;
+        if (!inDoorGap) {
+          const dist = PEN.x - s.x + CFG.WALL_RANGE;
+          if (dist > 0) fx -= CFG.WALL_STRENGTH * (dist / CFG.WALL_RANGE);
+        }
+      }
+    } else {
+      // ドアが閉まったら全壁
+      penWallForce(s, fx, fy);
+      const pf = calcPenWall(s);
+      fx += pf.x; fy += pf.y;
+    }
+
+    // --- 速度更新 ---
+    s.vx = s.vx * s.inertia + fx * dt;
+    s.vy = s.vy * s.inertia + fy * dt;
+
+    // 速度制限
+    const spd = Math.hypot(s.vx, s.vy);
+    const maxSpd = CFG.SHEEP_MAX_SPEED;
+    if (spd > maxSpd) { s.vx = s.vx/spd*maxSpd; s.vy = s.vy/spd*maxSpd; }
+
+    // 位置更新
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+
+    // 境界クランプ
+    s.x = Math.max(CFG.SHEEP_RADIUS, Math.min(W - CFG.SHEEP_RADIUS, s.x));
+    s.y = Math.max(CFG.SHEEP_RADIUS, Math.min(H - CFG.SHEEP_RADIUS, s.y));
+
+    // 視線方向（移動方向に追従）
+    if (spd > 5) {
+      s.eyeDir = Math.atan2(s.vy, s.vx);
+    }
+  });
+}
+
+function calcPenWall(s) {
+  let fx = 0, fy = 0;
+  const margin = CFG.WALL_RANGE;
+  // 柵の4辺それぞれから反発
+  const walls = [
+    { axis:'x', val: PEN.x,        dir: -1 },
+    { axis:'x', val: PEN.x+PEN.w,  dir:  1 },
+    { axis:'y', val: PEN.y,        dir: -1 },
+    { axis:'y', val: PEN.y+PEN.h,  dir:  1 },
+  ];
+  walls.forEach(w => {
+    if (w.axis === 'x') {
+      const d = Math.abs(s.x - w.val);
+      if (d < margin) fx += w.dir * CFG.WALL_STRENGTH * (1 - d/margin);
+    } else {
+      const d = Math.abs(s.y - w.val);
+      if (d < margin) fy += w.dir * CFG.WALL_STRENGTH * (1 - d/margin);
+    }
+  });
+  return { x: fx, y: fy };
+}
+function penWallForce() {} // dummy
+
+// =============================================
+//  DRAW
+// =============================================
+const grassColors = ['#3d7a2e','#447a32','#3a7030','#4a8238'];
+
+function drawField() {
+  // 背景：牧草地
+  ctx.fillStyle = '#4a8c38';
+  ctx.fillRect(0, 0, W * SCALE, H * SCALE);
+
+  // 草むらテクスチャ（単純なドット）
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  for (let gx = 0; gx < W; gx += 22) {
+    for (let gy = 0; gy < H; gy += 22) {
+      const c = grassColors[(gx/22 + gy/22) % grassColors.length];
+      ctx.fillStyle = c;
+      ctx.fillRect((gx + (gy%7) * 2) * SCALE, gy * SCALE, 18 * SCALE, 18 * SCALE);
+    }
+  }
+  ctx.restore();
+
+  // 池
+  PONDS.forEach(p => {
+    ctx.save();
+    ctx.scale(SCALE, SCALE);
+    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.rx);
+    grad.addColorStop(0, '#5ba8d8');
+    grad.addColorStop(0.7, '#4898c8');
+    grad.addColorStop(1, '#3070a0');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  // 木
+  TREES.forEach(t => {
+    ctx.save();
+    ctx.scale(SCALE, SCALE);
+    // 影
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.beginPath();
+    ctx.ellipse(t.x + 4, t.y + 6, t.r, t.r * 0.5, 0, 0, Math.PI*2);
+    ctx.fill();
+    // 幹
+    ctx.fillStyle = '#7a5230';
+    ctx.fillRect(t.x - 4, t.y - 4, 8, t.r + 6);
+    // 葉
+    const leafGrad = ctx.createRadialGradient(t.x - 3, t.y - 3, 0, t.x, t.y, t.r);
+    leafGrad.addColorStop(0, '#68c040');
+    leafGrad.addColorStop(0.6, '#4a9028');
+    leafGrad.addColorStop(1, '#305a18');
+    ctx.fillStyle = leafGrad;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, t.r, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // 柵（ペン）
+  ctx.save();
+  ctx.scale(SCALE, SCALE);
+  // 柵の地面
+  ctx.fillStyle = 'rgba(200,160,80,0.15)';
+  ctx.fillRect(PEN.x, PEN.y, PEN.w, PEN.h);
+
+  // フェンスライン描画
+  ctx.strokeStyle = '#a07840';
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+
+  const fencePost = (x, y, h) => {
+    ctx.fillStyle = '#8a6030';
+    ctx.fillRect(x - 3, y, 6, h);
+    ctx.fillStyle = '#c09050';
+    ctx.fillRect(x - 2, y, 4, h - 3);
+  };
+
+  // 上辺
+  drawFenceRow(PEN.x, PEN.y, PEN.x + PEN.w, PEN.y);
+  // 下辺
+  drawFenceRow(PEN.x, PEN.y + PEN.h, PEN.x + PEN.w, PEN.y + PEN.h);
+  // 右辺
+  drawFenceCol(PEN.x + PEN.w, PEN.y, PEN.x + PEN.w, PEN.y + PEN.h);
+  // 左辺（ドア開口部を除く）
+  if (!doorClosed) {
+    drawFenceCol(PEN.x, PEN.y, PEN.x, DOOR.y);
+    drawFenceCol(PEN.x, DOOR.y + DOOR.h, PEN.x, PEN.y + PEN.h);
+  } else {
+    drawFenceCol(PEN.x, PEN.y, PEN.x, PEN.y + PEN.h);
+    // ドア（閉じた状態）
+    ctx.strokeStyle = '#c08840';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(DOOR.x, DOOR.y);
+    ctx.lineTo(DOOR.x, DOOR.y + DOOR.h);
+    ctx.stroke();
+  }
+
+  // ドア表示（開いた状態）
+  if (!doorClosed) {
+    ctx.strokeStyle = '#d0a050';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(DOOR.x, DOOR.y);
+    ctx.lineTo(DOOR.x, DOOR.y + DOOR.h);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // ラベル
+    ctx.fillStyle = 'rgba(255,220,80,0.85)';
+    ctx.font = '11px Klee One, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('入口', DOOR.x - 22, DOOR.y + DOOR.h / 2 + 4);
+  }
+
+  ctx.restore();
+}
+
+function drawFenceRow(x1, y1, x2, y2) {
+  const postGap = 40;
+  ctx.strokeStyle = '#a07840';
+  ctx.lineWidth = 3;
+  // 横棒 x2本
+  [-8, 0].forEach(offset => {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1 + offset);
+    ctx.lineTo(x2, y2 + offset);
+    ctx.stroke();
+  });
+  // 杭
+  for (let x = x1; x <= x2; x += postGap) {
+    ctx.fillStyle = '#8a6030';
+    ctx.fillRect(x - 3, y1 - 10, 6, 20);
+  }
+}
+
+function drawFenceCol(x1, y1, x2, y2) {
+  const postGap = 40;
+  ctx.strokeStyle = '#a07840';
+  ctx.lineWidth = 3;
+  [0, 8].forEach(offset => {
+    ctx.beginPath();
+    ctx.moveTo(x1 + offset, y1);
+    ctx.lineTo(x2 + offset, y2);
+    ctx.stroke();
+  });
+  for (let y = y1; y <= y2; y += postGap) {
+    ctx.fillStyle = '#8a6030';
+    ctx.fillRect(x1 - 5, y - 3, 18, 6);
+  }
+}
+
+function drawSheep(s, t) {
+  ctx.save();
+  ctx.translate(s.x * SCALE, s.y * SCALE);
+  const sz = s.size * SCALE;
+
+  // 影
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(2 * sz/10, 4 * sz/10, 9 * sz/10, 4 * sz/10, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // 体（モコモコ）
+  ctx.fillStyle = s.woolColor;
+  const wobble = Math.sin((t + s.frameOffset) * 3) * 0.5;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, (CFG.SHEEP_RADIUS + wobble) * sz/10, (CFG.SHEEP_RADIUS - 1 + wobble * 0.5) * sz/10, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(150,130,110,0.3)';
+  ctx.lineWidth = 0.5 * sz/10;
+  ctx.stroke();
+
+  // ウール凹凸
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  for (let i = 0; i < 5; i++) {
+    const angle = (i / 5) * Math.PI * 2 + t * 0.5;
+    const r = (CFG.SHEEP_RADIUS - 3) * sz/10;
+    ctx.beginPath();
+    ctx.arc(Math.cos(angle)*r*0.6, Math.sin(angle)*r*0.6, 3 * sz/10, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // 顔
+  const faceR = 5 * sz/10;
+  const faceX = Math.cos(s.eyeDir) * 6 * sz/10;
+  const faceY = Math.sin(s.eyeDir) * 6 * sz/10;
+  ctx.fillStyle = '#d8c8a0';
+  ctx.beginPath();
+  ctx.ellipse(faceX, faceY, faceR, faceR * 0.9, s.eyeDir, 0, Math.PI*2);
+  ctx.fill();
+
+  // 目
+  const eyeR = 1.5 * sz/10;
+  const perpAngle = s.eyeDir + Math.PI/2;
+  [-1, 1].forEach(side => {
+    const ex = faceX + Math.cos(s.eyeDir) * 1 * sz/10 + Math.cos(perpAngle) * side * 2.5 * sz/10;
+    const ey = faceY + Math.sin(s.eyeDir) * 1 * sz/10 + Math.sin(perpAngle) * side * 2.5 * sz/10;
+    ctx.fillStyle = '#2a1a0a';
+    ctx.beginPath();
+    ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // 足（歩くアニメ）
+  const walkSpd = Math.hypot(s.vx, s.vy);
+  if (walkSpd > 5) {
+    const legAngle = Math.sin((t + s.frameOffset) * 8) * 0.3;
+    ctx.strokeStyle = '#8a7050';
+    ctx.lineWidth = 1.5 * sz/10;
+    [[-4,-1],[4,-1],[-4,5],[4,5]].forEach(([lx, ly], idx) => {
+      const la = legAngle * (idx % 2 === 0 ? 1 : -1);
+      ctx.beginPath();
+      ctx.moveTo(lx * sz/10, ly * sz/10);
+      ctx.lineTo(lx * sz/10 + Math.sin(la)*4*sz/10, (ly + 7) * sz/10 + Math.cos(la)*2*sz/10);
+      ctx.stroke();
+    });
+  }
+
+  ctx.restore();
+}
+
+function drawDog(t) {
+  ctx.save();
+  ctx.translate(dog.x * SCALE, dog.y * SCALE);
+
+  const spd = Math.hypot(dog.vx, dog.vy);
+  const faceAngle = spd > 5 ? Math.atan2(dog.vy, dog.vx) : Math.PI * 0.5;
+
+  // 影
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath();
+  ctx.ellipse(2 * SCALE, 5 * SCALE, 10 * SCALE, 4 * SCALE, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // 体
+  ctx.fillStyle = '#b8782a';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, CFG.DOG_RADIUS * SCALE * 0.8, CFG.DOG_RADIUS * SCALE * 0.65, faceAngle, 0, Math.PI*2);
+  ctx.fill();
+
+  // 頭
+  const headX = Math.cos(faceAngle) * 10 * SCALE;
+  const headY = Math.sin(faceAngle) * 10 * SCALE;
+  ctx.fillStyle = '#c88030';
+  ctx.beginPath();
+  ctx.arc(headX, headY, 7 * SCALE, 0, Math.PI*2);
+  ctx.fill();
+
+  // 耳
+  const perpAngle = faceAngle + Math.PI/2;
+  [-1, 1].forEach(side => {
+    const ex = headX + Math.cos(perpAngle) * side * 5 * SCALE;
+    const ey = headY + Math.sin(perpAngle) * side * 5 * SCALE;
+    ctx.fillStyle = '#a06020';
+    ctx.beginPath();
+    ctx.ellipse(ex, ey, 4*SCALE, 5*SCALE, faceAngle, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // 鼻
+  ctx.fillStyle = '#2a1010';
+  ctx.beginPath();
+  ctx.arc(headX + Math.cos(faceAngle)*5*SCALE, headY + Math.sin(faceAngle)*5*SCALE, 2*SCALE, 0, Math.PI*2);
+  ctx.fill();
+
+  // 目
+  [-1,1].forEach(side => {
+    const eyeX = headX + Math.cos(perpAngle)*side*3*SCALE + Math.cos(faceAngle)*2*SCALE;
+    const eyeY = headY + Math.sin(perpAngle)*side*3*SCALE + Math.sin(faceAngle)*2*SCALE;
+    ctx.fillStyle = '#1a0a0a';
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY, 1.5*SCALE, 0, Math.PI*2);
+    ctx.fill();
+    // ハイライト
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath();
+    ctx.arc(eyeX + 0.5*SCALE, eyeY - 0.5*SCALE, 0.6*SCALE, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // 尻尾
+  const tailAngle = faceAngle + Math.PI + Math.sin(t * 6) * 0.6;
+  ctx.strokeStyle = '#b87828';
+  ctx.lineWidth = 3 * SCALE;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-Math.cos(faceAngle)*8*SCALE, -Math.sin(faceAngle)*8*SCALE);
+  ctx.quadraticCurveTo(
+    Math.cos(tailAngle)*12*SCALE, Math.sin(tailAngle)*12*SCALE,
+    Math.cos(tailAngle)*18*SCALE, Math.sin(tailAngle)*18*SCALE
+  );
+  ctx.stroke();
+
+  // 足（歩くアニメ）
+  if (spd > 10) {
+    const walkCycle = Math.sin(t * 8) * 0.4;
+    ctx.strokeStyle = '#a06820';
+    ctx.lineWidth = 2 * SCALE;
+    [[-5,-5],[5,-5],[-5,5],[5,5]].forEach(([lx, ly], idx) => {
+      const la = walkCycle * (idx % 2 === 0 ? 1 : -1);
+      ctx.beginPath();
+      ctx.moveTo(lx*SCALE, ly*SCALE);
+      ctx.lineTo(lx*SCALE + Math.sin(la)*5*SCALE, (ly+8)*SCALE);
+      ctx.stroke();
+    });
+  }
+
+  ctx.restore();
+}
+
+// =============================================
+//  UPDATE UI
+// =============================================
+function updateUI() {
+  const inPen = sheep.filter(s => insidePen(s.x, s.y)).length;
+  sheepInPen = inPen;
+  document.getElementById('ui-sheep').textContent = `${inPen} / ${CFG.SHEEP_N}`;
+  document.getElementById('ui-goal').textContent = `${CFG.GOAL_N}頭`;
+  const mins = Math.floor(elapsed / 60);
+  const secs = Math.floor(elapsed % 60);
+  document.getElementById('ui-time').textContent = `${mins}:${secs.toString().padStart(2,'0')}`;
+  const timerFrac = Math.max(0, timer / CFG.TIME_LIMIT);
+  document.getElementById('timer-bar').style.width = (timerFrac * 100) + '%';
+  if (timerFrac < 0.3) {
+    document.getElementById('timer-bar').style.background = 'linear-gradient(90deg, #e04040, #f08040)';
+  }
+}
+
+// =============================================
+//  GAME LOOP
+// =============================================
+let lastTime = 0;
+let totalTime = 0;
+
+function loop(ts) {
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+
+  if (state === 'playing') {
+    totalTime += dt;
+    elapsed += dt;
+    timer -= dt;
+
+    // 入力処理
+    let inputX = 0, inputY = 0;
+    if (joystickActive) {
+      inputX = joystickDX;
+      inputY = joystickDY;
+    } else {
+      if (keys['ArrowLeft']  || keys['a'] || keys['A']) inputX -= 1;
+      if (keys['ArrowRight'] || keys['d'] || keys['D']) inputX += 1;
+      if (keys['ArrowUp']    || keys['w'] || keys['W']) inputY -= 1;
+      if (keys['ArrowDown']  || keys['s'] || keys['S']) inputY += 1;
+      if (mouseTarget) {
+        const mdx = mouseTarget.x - dog.x;
+        const mdy = mouseTarget.y - dog.y;
+        const md = Math.hypot(mdx, mdy);
+        if (md > 8) { inputX = mdx/md; inputY = mdy/md; }
+        else mouseTarget = null;
+      }
+    }
+
+    // 正規化
+    const inputLen = Math.hypot(inputX, inputY);
+    if (inputLen > 1) { inputX /= inputLen; inputY /= inputLen; }
+
+    const prevVx = dog.vx, prevVy = dog.vy;
+    dog.vx = inputX * CFG.DOG_SPEED;
+    dog.vy = inputY * CFG.DOG_SPEED;
+
+    // 犬移動
+    dog.x += dog.vx * dt;
+    dog.y += dog.vy * dt;
+
+    // 木との衝突
+    TREES.forEach(t => {
+      const dx = dog.x - t.x, dy = dog.y - t.y;
+      const d = Math.hypot(dx, dy);
+      const minD = t.r + CFG.DOG_RADIUS;
+      if (d < minD && d > 0.01) {
+        dog.x = t.x + dx/d * minD;
+        dog.y = t.y + dy/d * minD;
+      }
+    });
+
+    // 境界
+    dog.x = Math.max(CFG.DOG_RADIUS, Math.min(W - CFG.DOG_RADIUS, dog.x));
+    dog.y = Math.max(CFG.DOG_RADIUS, Math.min(H - CFG.DOG_RADIUS, dog.y));
+
+    // ひつじ更新
+    updateSheep(dt, dog.vx, dog.vy);
+
+    // ドアトリガー判定
+    if (!doorClosed) {
+      const dx = dog.x - DOOR.x;
+      const dy = dog.y - (DOOR.y + DOOR.h/2);
+      const dd = Math.hypot(dx, dy);
+      if (dd < DOOR_TRIGGER_DIST) {
+        const inPen = sheep.filter(s => insidePen(s.x, s.y)).length;
+        if (inPen >= CFG.GOAL_N) {
+          doorClosed = true;
+          endGame(true);
+        } else if (inPen > 0) {
+          // 頭数不足でもドアを閉めたら判定
+          doorClosed = true;
+          endGame(inPen >= CFG.GOAL_N);
+        }
+      }
+    }
+
+    // タイムアップ
+    if (timer <= 0) {
+      endGame(sheepInPen >= CFG.GOAL_N);
+    }
+
+    updateUI();
+  }
+
+  // 描画
+  ctx.save();
+  drawField();
+
+  ctx.save();
+  ctx.scale(1, 1); // already scaled in draw funcs
+  sheep.forEach(s => drawSheep(s, totalTime));
+  drawDog(totalTime);
+  ctx.restore();
+
+  // ドアトリガーのヒント
+  if (state === 'playing' && !doorClosed) {
+    const inPen = sheep.filter(s => insidePen(s.x, s.y)).length;
+    if (inPen >= CFG.GOAL_N) {
+      ctx.save();
+      ctx.scale(SCALE, SCALE);
+      ctx.fillStyle = 'rgba(255,230,60,0.9)';
+      ctx.font = 'bold 14px Klee One, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('入口に近づいてドアを閉めよう！', W/2, 30);
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+
+  requestAnimationFrame(loop);
+}
+
+function endGame(success) {
+  state = success ? 'success' : 'fail';
+  const overlay = document.getElementById('overlay');
+  const inPen = sheep.filter(s => insidePen(s.x, s.y)).length;
+  const mins = Math.floor(elapsed / 60);
+  const secs = Math.floor(elapsed % 60);
+  overlay.innerHTML = `
+    <h1>${success ? '🎉 せいこう！' : '😢 しっぱい…'}</h1>
+    <div class="result-sheep">🐑 ${inPen} / ${CFG.SHEEP_N}頭</div>
+    <p>${success
+      ? `目標の${CFG.GOAL_N}頭を柵に入れました！\nタイム: ${mins}分${secs}秒`
+      : `${CFG.GOAL_N}頭が目標でしたが、${inPen}頭しか入りませんでした。`}
+    </p>
+    <button id="start-btn" onclick="initGame()">もう一度あそぶ</button>
+  `;
+  overlay.style.display = 'flex';
+}
+
+// =============================================
+//  INPUT
+// =============================================
+window.addEventListener('keydown', e => { keys[e.key] = true; mouseTarget = null; });
+window.addEventListener('keyup',   e => { keys[e.key] = false; });
+
+// マウスクリックで移動
+canvas.addEventListener('click', e => {
+  if (state !== 'playing') return;
+  const rect = canvas.getBoundingClientRect();
+  mouseTarget = {
+    x: (e.clientX - rect.left) / SCALE,
+    y: (e.clientY - rect.top)  / SCALE,
+  };
+});
+
+// ジョイスティック（スマホ）
+const joystickZone = document.getElementById('joystick-zone');
+const joystickBase = document.getElementById('joystick-base');
+const joystickKnob = document.getElementById('joystick-knob');
+const JR = 60; // ベース半径
+let jTouchId = null, jBaseX = 60, jBaseY = 60;
+
+function isTouchDevice() {
+  return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+}
+if (isTouchDevice()) {
+  joystickZone.style.display = 'block';
+  document.getElementById('hint').style.display = 'none';
+}
+
+joystickZone.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const touch = e.changedTouches[0];
+  jTouchId = touch.identifier;
+  joystickActive = true;
+}, { passive: false });
+
+window.addEventListener('touchmove', e => {
+  if (!joystickActive) return;
+  e.preventDefault();
+  for (const touch of e.changedTouches) {
+    if (touch.identifier !== jTouchId) continue;
+    const rect = joystickBase.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let dx = touch.clientX - cx;
+    let dy = touch.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > JR) { dx = dx/dist*JR; dy = dy/dist*JR; }
+    joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    joystickDX = dx / JR;
+    joystickDY = dy / JR;
+  }
+}, { passive: false });
+
+window.addEventListener('touchend', e => {
+  for (const touch of e.changedTouches) {
+    if (touch.identifier === jTouchId) {
+      joystickActive = false;
+      joystickDX = 0; joystickDY = 0;
+      joystickKnob.style.transform = 'translate(-50%, -50%)';
+      jTouchId = null;
+    }
+  }
+});
+
+// =============================================
+//  START
+// =============================================
+document.getElementById('start-btn').addEventListener('click', () => {
+  document.getElementById('overlay').style.display = 'none';
+  initGame();
+});
+
+requestAnimationFrame(ts => { lastTime = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
