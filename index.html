@@ -112,7 +112,7 @@
 <div id="overlay">
   <h1>🐑 ひつじあつめ</h1>
   <p class="sub">犬を操作してひつじを柵の中に入れよう！<br>目標頭数が入ったら入口に近づいてドアを閉めます。</p>
-  <button class="start-btn" id="start-btn">はじめる</button>
+  <button class="start-btn" id="start-btn" type="button">はじめる</button>
 </div>
 
 <script>
@@ -142,12 +142,14 @@ let S = 1;
 
 function resize() {
   const wrap = document.getElementById('canvas-wrap');
-  S = Math.min(wrap.clientWidth / BASE_W, wrap.clientHeight / BASE_H, 2.5);
+  const aw = wrap.clientWidth  || window.innerWidth;
+  const ah = wrap.clientHeight || (window.innerHeight - 48);
+  S = Math.min(aw / BASE_W, ah / BASE_H, 2.5);
+  if (S <= 0 || !isFinite(S)) S = 1;
   canvas.width  = Math.round(BASE_W * S);
   canvas.height = Math.round(BASE_H * S);
 }
 window.addEventListener('resize', resize);
-resize();
 
 // ============================================================
 //  フィールド（ゲーム座標）
@@ -365,13 +367,13 @@ function draw(T) {
   }
 
   // ひつじ
-  sheep.forEach(s=>drawSheep(s,T));
+  if (sheep) sheep.forEach(s=>drawSheep(s,T));
 
   // 犬
-  drawDog(T);
+  if (dog) drawDog(T);
 
   // ヒント文字
-  if(state==='playing'&&!doorClosed){
+  if(state==='playing'&&!doorClosed&&sheep){
     const n=sheep.filter(s=>inPen(s.x,s.y)).length;
     if(n>=CFG.GOAL_N){
       ctx.fillStyle='rgba(255,230,50,0.95)';
@@ -486,9 +488,10 @@ function endGame(success){
     <p class="sub">${success
       ?`目標の${CFG.GOAL_N}頭を柵に入れました！<br>タイム: ${m}分${sec}秒`
       :`目標は${CFG.GOAL_N}頭でしたが、<br>${n}頭しか入りませんでした。`}</p>
-    <button class="start-btn" onclick="startGame()">もう一度あそぶ</button>
+    <button class="start-btn" id="retry-btn" type="button">もう一度あそぶ</button>
   `;
   ov.style.display='flex';
+  document.getElementById('retry-btn').addEventListener('click', startGame);
 }
 
 // ============================================================
@@ -593,10 +596,13 @@ window.addEventListener('touchend',e=>{
 });
 
 // ============================================================
-//  起動
+//  起動（DOM構築完了後に実行）
 // ============================================================
-document.getElementById('start-btn').addEventListener('click',startGame);
-requestAnimationFrame(ts=>{lastTs=ts;requestAnimationFrame(loop);});
+window.addEventListener('DOMContentLoaded', () => {
+  resize(); // DOM確定後にcanvasサイズを決定
+  document.getElementById('start-btn').addEventListener('click', startGame);
+  requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+});
 </script>
 </body>
 </html>
