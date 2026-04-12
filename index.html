@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>ひつじあつめ</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="version" content="0.2">
+<title>ひつじあつめ v0.2</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -111,21 +114,28 @@
 
 <div id="overlay">
   <h1>🐑 ひつじあつめ</h1>
-  <p class="sub">犬を操作してひつじを柵の中に入れよう！<br>目標頭数が入ったら入口に近づいてドアを閉めます。</p>
+  <p class="sub">犬を操作してひつじを柵の中に入れよう！<br>全頭入れたらクリア！タイムは2分です。</p>
   <button class="start-btn" id="start-btn" type="button">はじめる</button>
+  <div style="font-size:11px;color:rgba(180,230,120,0.4);margin-top:4px;">v0.2</div>
 </div>
 
 <script>
+const VERSION = 'v0.2';
+
 // ============================================================
 //  設定
 // ============================================================
 const CFG = {
-  SHEEP_N: 12, GOAL_N: 10, TIME_LIMIT: 120,
+  SHEEP_N: 12, GOAL_N: 12,  // 全頭が目標
+  TIME_LIMIT: 120,
   DOG_SPEED: 200, DOG_RADIUS: 14,
-  SHEEP_MAX_SPEED: 130, SHEEP_RADIUS: 10,
-  DOG_REPULSION_RANGE: 160, DOG_REPULSION_STRENGTH: 400,
+  SHEEP_MAX_SPEED: 160, SHEEP_RADIUS: 10,
+  // 犬への反応を強化
+  DOG_REPULSION_RANGE: 180, DOG_REPULSION_STRENGTH: 560,
   FLOCK_RANGE: 110, FLOCK_STRENGTH: 16,
   SHEEP_REPULSION_RANGE: 26, SHEEP_REPULSION_STRENGTH: 150,
+  // 自由な動き（ランダムウォーク）を追加
+  WANDER_STRENGTH: 18,
   GOAL_ATTRACTION: 5, GOAL_ATTRACTION_RANGE: 280,
   WALL_RANGE: 32, WALL_STRENGTH: 280,
 };
@@ -155,8 +165,8 @@ window.addEventListener('resize', resize);
 //  フィールド（ゲーム座標）
 // ============================================================
 const PEN  = { x:560, y:90, w:210, h:310 };
-const DOOR = { x:PEN.x, y:PEN.y+PEN.h/2-35, h:70 };
-const DOOR_DIST = 45;
+// 左壁の開口部（入口）
+const OPENING = { y: PEN.y + PEN.h/2 - 35, h: 70 };
 
 const TREES = [
   {x:100,y:75,r:22},{x:260,y:165,r:18},{x:148,y:345,r:20},
@@ -167,7 +177,7 @@ const PONDS = [{x:215,y:265,rx:50,ry:32}];
 // ============================================================
 //  状態
 // ============================================================
-let state='title', dog, sheep, timer, elapsed, doorClosed, goalPoint;
+let state='title', dog, sheep, timer, elapsed, goalPoint;
 const keys={};
 let mouseTarget=null, joystickDX=0, joystickDY=0, joystickActive=false;
 
@@ -197,13 +207,16 @@ function startGame() {
       flocking:  0.5+Math.random()*0.8,
       wanderlust:0.2+Math.random()*0.6,
       inertia:   0.82+Math.random()*0.12,
+      // 自由に動き回る個性（0=おとなしい, 1=やんちゃ）
+      freedom:   Math.random(),
+      wanderAngle: Math.random()*Math.PI*2,
       wool: `hsl(${38+Math.random()*28},${12+Math.random()*18}%,${88+Math.random()*10}%)`,
       sz:   0.85+Math.random()*0.28,
       eyeDir: Math.random()*Math.PI*2,
       fo: Math.random()*60,
     });
   }
-  timer=CFG.TIME_LIMIT; elapsed=0; doorClosed=false;
+  timer=CFG.TIME_LIMIT; elapsed=0;
   state='playing'; updateUI();
 }
 
@@ -216,18 +229,27 @@ function nearPond(x,y,m){ return PONDS.some(p=>{const dx=(x-p.x)/(p.rx+m),dy=(y-
 // ============================================================
 function updateSheep(dt) {
   const dogSpd = Math.hypot(dog.vx,dog.vy);
-  const spdFactor = Math.min(dogSpd/80, 1.0);
   const WR=CFG.WALL_RANGE, WS=CFG.WALL_STRENGTH;
 
   sheep.forEach((s,i) => {
     let fx=0, fy=0;
 
-    // 犬から逃げる
+    // 犬から逃げる（距離＋犬との相対速度で反応強度を決定）
     const ddx=s.x-dog.x, ddy=s.y-dog.y, dd=Math.hypot(ddx,ddy);
     if (dd<CFG.DOG_REPULSION_RANGE&&dd>0.1) {
-      const str=CFG.DOG_REPULSION_STRENGTH*s.timidity*spdFactor*(1-dd/CFG.DOG_REPULSION_RANGE);
+      // 犬が羊に近づいてくる相対速度成分（接近するほど強く逃げる）
+      const relVx=dog.vx-s.vx, relVy=dog.vy-s.vy;
+      const approaching = -(relVx*ddx+relVy*ddy)/(dd); // 正=犬が近づいてくる
+      const approachFactor = Math.max(0.3, Math.min(2.0, 1.0 + approaching/60));
+      const distFactor = (1 - dd/CFG.DOG_REPULSION_RANGE);
+      const str = CFG.DOG_REPULSION_STRENGTH * s.timidity * approachFactor * distFactor;
       fx+=ddx/dd*str; fy+=ddy/dd*str;
     }
+
+    // ランダムウォーク（個体差あり: freedomが高いほど自由に動く）
+    s.wanderAngle += (Math.random()-0.5) * 2.5 * dt;
+    fx += Math.cos(s.wanderAngle) * CFG.WANDER_STRENGTH * s.freedom;
+    fy += Math.sin(s.wanderAngle) * CFG.WANDER_STRENGTH * s.freedom;
 
     // 群れ引力
     let cx=0,cy=0,cnt=0;
@@ -277,26 +299,17 @@ function updateSheep(dt) {
       }
     });
 
-    // 柵
-    if(!doorClosed){
-      // 左壁（ドア除く）
-      const nearL=s.x>PEN.x-WR&&s.x<PEN.x+8;
-      if(nearL){
-        const inGap=s.y>DOOR.y&&s.y<DOOR.y+DOOR.h;
-        if(!inGap){const d=PEN.x-s.x+WR;if(d>0)fx-=WS*(d/WR);}
-      }
-      // 右・上・下
-      const dr=PEN.x+PEN.w-s.x;
-      if(dr<WR&&s.y>PEN.y&&s.y<PEN.y+PEN.h)fx-=WS*(1-dr/WR);
-      const dt2=s.y-PEN.y;
-      if(dt2<WR&&s.x>PEN.x&&s.x<PEN.x+PEN.w)fy+=WS*(1-dt2/WR);
-      const db=PEN.y+PEN.h-s.y;
-      if(db<WR&&s.x>PEN.x&&s.x<PEN.x+PEN.w)fy-=WS*(1-db/WR);
-    } else {
-      [{a:'x',v:PEN.x,d:-1},{a:'x',v:PEN.x+PEN.w,d:1},{a:'y',v:PEN.y,d:-1},{a:'y',v:PEN.y+PEN.h,d:1}].forEach(w=>{
-        const dist=Math.abs((w.a==='x'?s.x:s.y)-w.v);
-        if(dist<WR){if(w.a==='x')fx+=w.d*WS*(1-dist/WR);else fy+=w.d*WS*(1-dist/WR);}
-      });
+    // 柵（左壁は開口部を除く、他3辺は常に閉じ）
+    // 右壁・上壁・下壁
+    [{a:'x',v:PEN.x+PEN.w,d:1},{a:'y',v:PEN.y,d:-1},{a:'y',v:PEN.y+PEN.h,d:1}].forEach(w=>{
+      const dist=Math.abs((w.a==='x'?s.x:s.y)-w.v);
+      if(dist<WR){if(w.a==='x')fx+=w.d*WS*(1-dist/WR);else fy+=w.d*WS*(1-dist/WR);}
+    });
+    // 左壁（開口部以外）
+    const nearLeft = Math.abs(s.x - PEN.x) < WR;
+    if(nearLeft){
+      const inOpening = s.y > OPENING.y && s.y < OPENING.y + OPENING.h;
+      if(!inOpening) fx -= WS*(1-Math.abs(s.x-PEN.x)/WR);
     }
 
     s.vx=s.vx*s.inertia+fx*dt; s.vy=s.vy*s.inertia+fy*dt;
@@ -352,19 +365,9 @@ function draw(T) {
   fenceH(PEN.x,PEN.y,PEN.x+PEN.w);
   fenceH(PEN.x,PEN.y+PEN.h,PEN.x+PEN.w);
   fenceV(PEN.x+PEN.w,PEN.y,PEN.y+PEN.h);
-  if(!doorClosed){
-    fenceV(PEN.x,PEN.y,DOOR.y);
-    fenceV(PEN.x,DOOR.y+DOOR.h,PEN.y+PEN.h);
-    ctx.strokeStyle='#d0a850'; ctx.lineWidth=3; ctx.setLineDash([6,5]);
-    ctx.beginPath(); ctx.moveTo(DOOR.x,DOOR.y); ctx.lineTo(DOOR.x,DOOR.y+DOOR.h); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle='rgba(255,225,65,0.92)'; ctx.font='bold 12px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('入口', DOOR.x-26, DOOR.y+DOOR.h/2+5);
-  } else {
-    fenceV(PEN.x,PEN.y,PEN.y+PEN.h);
-    ctx.strokeStyle='#c08030'; ctx.lineWidth=5;
-    ctx.beginPath(); ctx.moveTo(DOOR.x,DOOR.y); ctx.lineTo(DOOR.x,DOOR.y+DOOR.h); ctx.stroke();
-  }
+  // 左壁：開口部を除いた上下だけ
+  fenceV(PEN.x, PEN.y, OPENING.y);
+  fenceV(PEN.x, OPENING.y + OPENING.h, PEN.y + PEN.h);
 
   // ひつじ
   if (sheep) sheep.forEach(s=>drawSheep(s,T));
@@ -373,12 +376,12 @@ function draw(T) {
   if (dog) drawDog(T);
 
   // ヒント文字
-  if(state==='playing'&&!doorClosed&&sheep){
+  if(state==='playing'&&sheep){
     const n=sheep.filter(s=>inPen(s.x,s.y)).length;
-    if(n>=CFG.GOAL_N){
-      ctx.fillStyle='rgba(255,230,50,0.95)';
-      ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
-      ctx.fillText('入口に近づいてドアを閉めよう！',BASE_W/2,24);
+    if(n>0&&n<CFG.SHEEP_N){
+      ctx.fillStyle='rgba(255,255,255,0.7)';
+      ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+      ctx.fillText(`柵の中: ${n}/${CFG.SHEEP_N}頭`, BASE_W-90, BASE_H-12);
     }
   }
 }
@@ -486,9 +489,10 @@ function endGame(success){
     <h1>${success?'🎉 せいこう！':'😢 しっぱい…'}</h1>
     <div class="result">🐑 ${n}/${CFG.SHEEP_N}頭</div>
     <p class="sub">${success
-      ?`目標の${CFG.GOAL_N}頭を柵に入れました！<br>タイム: ${m}分${sec}秒`
-      :`目標は${CFG.GOAL_N}頭でしたが、<br>${n}頭しか入りませんでした。`}</p>
+      ?`全${CFG.SHEEP_N}頭を柵に入れました！<br>タイム: ${m}分${sec}秒`
+      :`タイムアップ！<br>${n}頭が柵に入りました。`}</p>
     <button class="start-btn" id="retry-btn" type="button">もう一度あそぶ</button>
+    <div style="font-size:11px;color:rgba(180,230,120,0.4);margin-top:4px;">${VERSION}</div>
   `;
   ov.style.display='flex';
   document.getElementById('retry-btn').addEventListener('click', startGame);
@@ -527,19 +531,40 @@ function loop(ts){
       const dx=dog.x-t.x,dy=dog.y-t.y,d=Math.hypot(dx,dy),mn=t.r+CFG.DOG_RADIUS;
       if(d<mn&&d>0.01){dog.x=t.x+dx/d*mn;dog.y=t.y+dy/d*mn;}
     });
+
+    // 池との衝突
+    PONDS.forEach(p=>{
+      const px=(dog.x-p.x)/p.rx, py=(dog.y-p.y)/p.ry;
+      const pd=Math.hypot(px,py);
+      if(pd<1.0&&pd>0.01){
+        // 最近の端に押し出す
+        dog.x=p.x+(px/pd)*p.rx*(1.0+CFG.DOG_RADIUS/p.rx);
+        dog.y=p.y+(py/pd)*p.ry*(1.0+CFG.DOG_RADIUS/p.ry);
+      }
+    });
+
+    // 柵との衝突（開口部は通れる）
+    const margin=CFG.DOG_RADIUS;
+    const nearPenLeft   = dog.x > PEN.x-margin && dog.x < PEN.x+margin;
+    const nearPenRight  = dog.x > PEN.x+PEN.w-margin && dog.x < PEN.x+PEN.w+margin;
+    const nearPenTop    = dog.y > PEN.y-margin && dog.y < PEN.y+margin;
+    const nearPenBottom = dog.y > PEN.y+PEN.h-margin && dog.y < PEN.y+PEN.h+margin;
+    const inPenYRange   = dog.y > PEN.y-margin && dog.y < PEN.y+PEN.h+margin;
+    const inPenXRange   = dog.x > PEN.x-margin && dog.x < PEN.x+PEN.w+margin;
+    const inOpeningY    = dog.y > OPENING.y && dog.y < OPENING.y+OPENING.h;
+    if(nearPenLeft  && inPenYRange && !inOpeningY) dog.x = PEN.x - margin;
+    if(nearPenRight && inPenYRange)                dog.x = PEN.x + PEN.w + margin;
+    if(nearPenTop   && inPenXRange)                dog.y = PEN.y - margin;
+    if(nearPenBottom&& inPenXRange)                dog.y = PEN.y + PEN.h + margin;
     dog.x=Math.max(CFG.DOG_RADIUS,Math.min(BASE_W-CFG.DOG_RADIUS,dog.x));
     dog.y=Math.max(CFG.DOG_RADIUS,Math.min(BASE_H-CFG.DOG_RADIUS,dog.y));
 
     updateSheep(dt);
 
-    if(!doorClosed){
-      const dd=Math.hypot(dog.x-DOOR.x,dog.y-(DOOR.y+DOOR.h/2));
-      if(dd<DOOR_DIST){
-        doorClosed=true;
-        endGame(sheep.filter(s=>inPen(s.x,s.y)).length>=CFG.GOAL_N);
-      }
-    }
-    if(timer<=0) endGame(sheep.filter(s=>inPen(s.x,s.y)).length>=CFG.GOAL_N);
+    // 終了判定：全頭が柵に入ったら即成功
+    const inPenCount = sheep.filter(s=>inPen(s.x,s.y)).length;
+    if(inPenCount >= CFG.SHEEP_N){ endGame(true); return; }
+    if(timer<=0){ endGame(inPenCount>=CFG.GOAL_N); return; }
     updateUI();
   }
 
