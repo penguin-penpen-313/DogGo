@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<meta name="version" content="0.2">
-<title>ひつじあつめ v0.2</title>
+<meta name="version" content="0.3">
+<title>ひつじあつめ v0.3</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -116,25 +116,29 @@
   <h1>🐑 ひつじあつめ</h1>
   <p class="sub">犬を操作してひつじを柵の中に入れよう！<br>全頭入れたらクリア！タイムは2分です。</p>
   <button class="start-btn" id="start-btn" type="button">はじめる</button>
-  <div style="font-size:11px;color:rgba(180,230,120,0.4);margin-top:4px;">v0.2</div>
+  <div style="font-size:11px;color:rgba(180,230,120,0.4);margin-top:4px;">v0.3</div>
 </div>
 
 <script>
-const VERSION = 'v0.2';
+const VERSION = 'v0.3';
 
 // ============================================================
 //  設定
 // ============================================================
 const CFG = {
-  SHEEP_N: 12, GOAL_N: 12,  // 全頭が目標
+  SHEEP_N: 12, GOAL_N: 12,
   TIME_LIMIT: 120,
   DOG_SPEED: 200, DOG_RADIUS: 14,
   SHEEP_MAX_SPEED: 160, SHEEP_RADIUS: 10,
-  // 犬への反応を強化
-  DOG_REPULSION_RANGE: 180, DOG_REPULSION_STRENGTH: 560,
+  // 犬への反応（2種類の力）
+  DOG_APPROACH_RANGE: 200,    // 接近を感知する距離
+  DOG_APPROACH_STRENGTH: 700, // 近づいてくる犬への逃げる力（相対速度ベース）
+  DOG_PRESENCE_RANGE: 120,    // 動いている犬の存在感（斥力）の距離
+  DOG_PRESENCE_STRENGTH: 180, // 動いている犬への斥力（犬の速度に比例）
+  // 群れ行動
   FLOCK_RANGE: 110, FLOCK_STRENGTH: 16,
   SHEEP_REPULSION_RANGE: 26, SHEEP_REPULSION_STRENGTH: 150,
-  // 自由な動き（ランダムウォーク）を追加
+  // ランダムウォーク
   WANDER_STRENGTH: 18,
   GOAL_ATTRACTION: 5, GOAL_ATTRACTION_RANGE: 280,
   WALL_RANGE: 32, WALL_STRENGTH: 280,
@@ -228,22 +232,38 @@ function nearPond(x,y,m){ return PONDS.some(p=>{const dx=(x-p.x)/(p.rx+m),dy=(y-
 //  ソーシャルフォースモデル
 // ============================================================
 function updateSheep(dt) {
-  const dogSpd = Math.hypot(dog.vx,dog.vy);
+  const dogSpd = Math.hypot(dog.vx, dog.vy);
   const WR=CFG.WALL_RANGE, WS=CFG.WALL_STRENGTH;
 
   sheep.forEach((s,i) => {
     let fx=0, fy=0;
 
-    // 犬から逃げる（距離＋犬との相対速度で反応強度を決定）
     const ddx=s.x-dog.x, ddy=s.y-dog.y, dd=Math.hypot(ddx,ddy);
-    if (dd<CFG.DOG_REPULSION_RANGE&&dd>0.1) {
-      // 犬が羊に近づいてくる相対速度成分（接近するほど強く逃げる）
-      const relVx=dog.vx-s.vx, relVy=dog.vy-s.vy;
-      const approaching = -(relVx*ddx+relVy*ddy)/(dd); // 正=犬が近づいてくる
-      const approachFactor = Math.max(0.3, Math.min(2.0, 1.0 + approaching/60));
-      const distFactor = (1 - dd/CFG.DOG_REPULSION_RANGE);
-      const str = CFG.DOG_REPULSION_STRENGTH * s.timidity * approachFactor * distFactor;
-      fx+=ddx/dd*str; fy+=ddy/dd*str;
+
+    // --- 力1: 接近感知による逃げる力 ---
+    // 犬が羊に向かって近づくときだけ強く反応する
+    // 相対速度の「犬→羊」方向成分を計算（正=犬が近づいてくる）
+    if (dd < CFG.DOG_APPROACH_RANGE && dd > 0.1) {
+      const relVx = dog.vx - s.vx;
+      const relVy = dog.vy - s.vy;
+      // 単位ベクトル（犬→羊）への射影
+      const approaching = (relVx * ddx + relVy * ddy) / dd;
+      // 近づいてくる時(approaching>0)のみ強く反応、離れる時はほぼ0
+      const reactFactor = Math.max(0, approaching) / 80;
+      const distFactor = 1 - dd / CFG.DOG_APPROACH_RANGE;
+      const str = CFG.DOG_APPROACH_STRENGTH * s.timidity * reactFactor * distFactor;
+      fx += ddx/dd * str;
+      fy += ddy/dd * str;
+    }
+
+    // --- 力2: 動いている犬からの斥力（存在感） ---
+    // 犬の速度に比例。止まっていればほぼ0。個体差あり。
+    if (dd < CFG.DOG_PRESENCE_RANGE && dd > 0.1) {
+      const speedFactor = Math.min(dogSpd / 100, 1.0);
+      const distFactor = 1 - dd / CFG.DOG_PRESENCE_RANGE;
+      const str = CFG.DOG_PRESENCE_STRENGTH * s.timidity * speedFactor * distFactor;
+      fx += ddx/dd * str;
+      fy += ddy/dd * str;
     }
 
     // ランダムウォーク（個体差あり: freedomが高いほど自由に動く）
