@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<meta name="version" content="0.6">
-<title>ひつじあつめ v0.6</title>
+<meta name="version" content="0.7">
+<title>ひつじあつめ v0.7</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -40,7 +40,8 @@
   canvas { display: block; touch-action: none; }
 
   #joystick-zone {
-    position: fixed; bottom: 24px; left: 24px;
+    position: fixed; bottom: 24px;
+    left: 50%; transform: translateX(-50%);
     width: 120px; height: 120px;
     display: none; z-index: 20; touch-action: none;
   }
@@ -116,11 +117,11 @@
   <h1>🐑 ひつじあつめ</h1>
   <p class="sub">犬を操作してひつじを柵の中に入れよう！<br>全頭入れたらクリア！タイムは2分です。</p>
   <button class="start-btn" id="start-btn" type="button">はじめる</button>
-  <div style="font-size:11px;color:rgba(180,230,120,0.4);margin-top:4px;">v0.6</div>
+  <div style="font-size:11px;color:rgba(180,230,120,0.4);margin-top:4px;">v0.7</div>
 </div>
 
 <script>
-const VERSION = 'v0.6';
+const VERSION = 'v0.7';
 
 // ============================================================
 //  設定
@@ -139,7 +140,8 @@ const CFG = {
   FLOCK_RANGE: 110, FLOCK_STRENGTH: 16,
   SHEEP_REPULSION_RANGE: 26, SHEEP_REPULSION_STRENGTH: 150,
   // ランダムウォーク
-  WANDER_STRENGTH: 18,
+  WANDER_STRENGTH: 40,        // 強めに（以前は18）
+  WANDER_TURN_SPEED: 2.0,     // 方向転換の速さ
   GOAL_ATTRACTION: 5, GOAL_ATTRACTION_RANGE: 280,
   WALL_RANGE: 32, WALL_STRENGTH: 280,
 };
@@ -179,6 +181,7 @@ let PONDS = [];
 //  状態
 // ============================================================
 let state='title', dog, sheep, timer, elapsed, goalPoint, allInTimer;
+let dogFaceAngle = Math.PI * 0.5; // 犬の向き（止まっても維持）
 const keys={};
 let mouseTarget=null, joystickDX=0, joystickDY=0, joystickActive=false;
 
@@ -189,6 +192,7 @@ function startGame() {
   document.getElementById('overlay').style.display='none';
 
   dog = { x:80, y:BASE_H/2, vx:0, vy:0 };
+  dogFaceAngle = Math.PI * 0.5;
   goalPoint = {
     x: PEN.x+PEN.w*0.3+Math.random()*PEN.w*0.4,
     y: PEN.y+PEN.h*0.25+Math.random()*PEN.h*0.5,
@@ -235,7 +239,7 @@ function startGame() {
     }
     sheep.push({
       x:sx, y:sy, vx:0, vy:0,
-      timidity:  0.5+Math.random()*0.9,
+      timidity:  0.75+Math.random()*0.65,
       flocking:  0.5+Math.random()*0.8,
       wanderlust:0.2+Math.random()*0.6,
       inertia:   0.82+Math.random()*0.12,
@@ -297,10 +301,10 @@ function updateSheep(dt) {
       fy += ddy/dd * str;
     }
 
-    // ランダムウォーク（個体差あり: freedomが高いほど自由に動く）
-    s.wanderAngle += (Math.random()-0.5) * 2.5 * dt;
-    fx += Math.cos(s.wanderAngle) * CFG.WANDER_STRENGTH * s.freedom;
-    fy += Math.sin(s.wanderAngle) * CFG.WANDER_STRENGTH * s.freedom;
+    // ランダムウォーク（強め。犬に追われていない時は自由に動く）
+    s.wanderAngle += (Math.random()-0.5) * CFG.WANDER_TURN_SPEED * dt;
+    fx += Math.cos(s.wanderAngle) * CFG.WANDER_STRENGTH * (0.4 + s.freedom*0.6);
+    fy += Math.sin(s.wanderAngle) * CFG.WANDER_STRENGTH * (0.4 + s.freedom*0.6);
 
     // 群れ引力
     let cx=0,cy=0,cnt=0;
@@ -340,13 +344,14 @@ function updateSheep(dt) {
       if(td<avR&&td>0.1){const str=WS*(1-td/avR);fx+=tx/td*str;fy+=ty/td*str;}
     });
 
-    // 池
+    // 池（強力な回避力 + 中に入ったら即押し出し）
     PONDS.forEach(p=>{
-      const px=(s.x-p.x)/p.rx,py=(s.y-p.y)/p.ry,pd=Math.hypot(px,py);
-      if(pd<1.6&&pd>0.01){
-        const len=Math.hypot(px/p.rx,py/p.ry)||1;
-        fx+=(px/p.rx/len)*WS*(1.4-pd)/1.4;
-        fy+=(py/p.ry/len)*WS*(1.4-pd)/1.4;
+      const px=(s.x-p.x)/p.rx, py=(s.y-p.y)/p.ry, pd=Math.hypot(px,py);
+      // 外縁から遠くても避けるように広めの回避範囲
+      if(pd<2.2&&pd>0.01){
+        const nx=px/pd, ny=py/pd;
+        const str=WS*2.5*(1-pd/2.2); // 強めの回避力
+        fx+=nx*str; fy+=ny*str;
       }
     });
 
@@ -393,48 +398,46 @@ function updateSheep(dt) {
       const minD=t.r+CFG.SHEEP_RADIUS;
       if(td<minD&&td>0.01){
         s.x=t.x+tx/td*minD; s.y=t.y+ty/td*minD;
-        // 衝突面方向の速度成分を消す
         const nx=tx/td, ny=ty/td;
         const dot=s.vx*nx+s.vy*ny;
         if(dot<0){s.vx-=dot*nx; s.vy-=dot*ny;}
       }
     });
-    // 池（楕円）
-    PONDS.forEach(p=>{
+
+    // 池：入れるが1/3スピード。強引に入った場合は押し出し
+    const sheepInPond = PONDS.some(p=>{
       const px=(s.x-p.x)/p.rx, py=(s.y-p.y)/p.ry;
-      const pd=Math.hypot(px,py);
-      const minPd=(p.rx+CFG.SHEEP_RADIUS)/p.rx; // 近似
-      if(pd<1.0&&pd>0.01){
-        // 楕円の外縁に押し出す
-        s.x=p.x+(px/pd)*( p.rx+CFG.SHEEP_RADIUS);
-        s.y=p.y+(py/pd)*(p.ry+CFG.SHEEP_RADIUS);
-        const nx=px/pd, ny=py/pd;
-        const dot=s.vx*nx+s.vy*ny;
-        if(dot<0){s.vx-=dot*nx; s.vy-=dot*ny;}
-      }
+      return Math.hypot(px,py)<1.0;
     });
-    // 柵の壁（ハード補正）
+    if(sheepInPond){
+      s.vx*=0.33; s.vy*=0.33;
+    }
+
+    // 柵の壁（ハード補正・内外両方向）
+    const SR=CFG.SHEEP_RADIUS;
     if(inPen(s.x,s.y)){
-      // 内側から右壁
-      if(s.x>PEN.x+PEN.w-CFG.SHEEP_RADIUS){s.x=PEN.x+PEN.w-CFG.SHEEP_RADIUS; if(s.vx>0)s.vx=0;}
-      // 内側から上壁
-      if(s.y<PEN.y+CFG.SHEEP_RADIUS){s.y=PEN.y+CFG.SHEEP_RADIUS; if(s.vy<0)s.vy=0;}
-      // 内側から下壁
-      if(s.y>PEN.y+PEN.h-CFG.SHEEP_RADIUS){s.y=PEN.y+PEN.h-CFG.SHEEP_RADIUS; if(s.vy>0)s.vy=0;}
-    } else {
-      // 外側から左壁（開口部以外）
+      // 内側から各壁
+      if(s.x>PEN.x+PEN.w-SR){s.x=PEN.x+PEN.w-SR; if(s.vx>0)s.vx*=-0.3;}
+      if(s.y<PEN.y+SR)       {s.y=PEN.y+SR;        if(s.vy<0)s.vy*=-0.3;}
+      if(s.y>PEN.y+PEN.h-SR) {s.y=PEN.y+PEN.h-SR;  if(s.vy>0)s.vy*=-0.3;}
+      // 内側から左壁（開口部以外）
       const inOpening=s.y>OPENING.y&&s.y<OPENING.y+OPENING.h;
-      if(!inOpening&&s.x>PEN.x-CFG.SHEEP_RADIUS&&s.x<PEN.x+CFG.SHEEP_RADIUS){
-        s.x=PEN.x-CFG.SHEEP_RADIUS; if(s.vx>0)s.vx=0;
-      }
-      // 外側から上壁
-      if(s.x>PEN.x&&s.x<PEN.x+PEN.w&&s.y>PEN.y-CFG.SHEEP_RADIUS&&s.y<PEN.y+CFG.SHEEP_RADIUS){
-        s.y=PEN.y-CFG.SHEEP_RADIUS; if(s.vy>0)s.vy=0;
-      }
-      // 外側から下壁
-      if(s.x>PEN.x&&s.x<PEN.x+PEN.w&&s.y>PEN.y+PEN.h-CFG.SHEEP_RADIUS&&s.y<PEN.y+PEN.h+CFG.SHEEP_RADIUS){
-        s.y=PEN.y+PEN.h+CFG.SHEEP_RADIUS; if(s.vy<0)s.vy=0;
-      }
+      if(!inOpening&&s.x<PEN.x+SR){s.x=PEN.x+SR; if(s.vx<0)s.vx*=-0.3;}
+    } else {
+      // 外側から各壁
+      const inOpening=s.y>OPENING.y&&s.y<OPENING.y+OPENING.h;
+      // 左壁（開口部以外）
+      if(!inOpening&&s.x>PEN.x-SR&&s.x<PEN.x+SR&&s.y>PEN.y&&s.y<PEN.y+PEN.h)
+        {s.x=PEN.x-SR; if(s.vx>0)s.vx*=-0.3;}
+      // 右壁
+      if(s.x>PEN.x+PEN.w-SR&&s.x<PEN.x+PEN.w+SR&&s.y>PEN.y&&s.y<PEN.y+PEN.h)
+        {s.x=PEN.x+PEN.w+SR; if(s.vx<0)s.vx*=-0.3;}
+      // 上壁
+      if(s.y>PEN.y-SR&&s.y<PEN.y+SR&&s.x>PEN.x&&s.x<PEN.x+PEN.w)
+        {s.y=PEN.y-SR; if(s.vy>0)s.vy*=-0.3;}
+      // 下壁
+      if(s.y>PEN.y+PEN.h-SR&&s.y<PEN.y+PEN.h+SR&&s.x>PEN.x&&s.x<PEN.x+PEN.w)
+        {s.y=PEN.y+PEN.h+SR; if(s.vy<0)s.vy*=-0.3;}
     }
 
     if(spd>4) s.eyeDir=Math.atan2(s.vy,s.vx);
@@ -556,7 +559,8 @@ function drawSheep(s,T){
 
 function drawDog(T){
   const spd=Math.hypot(dog.vx,dog.vy);
-  const fa=spd>5?Math.atan2(dog.vy,dog.vx):Math.PI*0.5;
+  if(spd>5) dogFaceAngle=Math.atan2(dog.vy,dog.vx); // 動いている時だけ更新
+  const fa=dogFaceAngle;
   const R=CFG.DOG_RADIUS;
   ctx.save(); ctx.translate(dog.x,dog.y);
   // 影
@@ -654,38 +658,52 @@ function loop(ts){
       }
     }
     const ilen=Math.hypot(ix,iy); if(ilen>1){ix/=ilen;iy/=ilen;}
-    dog.vx=ix*CFG.DOG_SPEED; dog.vy=iy*CFG.DOG_SPEED;
+
+    // 池の中では1/3スピード
+    const dogInPond = PONDS.some(p=>{
+      const px=(dog.x-p.x)/p.rx, py=(dog.y-p.y)/p.ry;
+      return Math.hypot(px,py)<1.0;
+    });
+    const dogSpeedMult = dogInPond ? 1/3 : 1.0;
+    dog.vx=ix*CFG.DOG_SPEED*dogSpeedMult;
+    dog.vy=iy*CFG.DOG_SPEED*dogSpeedMult;
     dog.x+=dog.vx*dt; dog.y+=dog.vy*dt;
 
+    // 木との衝突
     TREES.forEach(t=>{
       const dx=dog.x-t.x,dy=dog.y-t.y,d=Math.hypot(dx,dy),mn=t.r+CFG.DOG_RADIUS;
       if(d<mn&&d>0.01){dog.x=t.x+dx/d*mn;dog.y=t.y+dy/d*mn;}
     });
 
-    // 池との衝突
-    PONDS.forEach(p=>{
-      const px=(dog.x-p.x)/p.rx, py=(dog.y-p.y)/p.ry;
-      const pd=Math.hypot(px,py);
-      if(pd<1.0&&pd>0.01){
-        // 最近の端に押し出す
-        dog.x=p.x+(px/pd)*p.rx*(1.0+CFG.DOG_RADIUS/p.rx);
-        dog.y=p.y+(py/pd)*p.ry*(1.0+CFG.DOG_RADIUS/p.ry);
-      }
-    });
-
-    // 柵との衝突（開口部は通れる）
-    const margin=CFG.DOG_RADIUS;
-    const nearPenLeft   = dog.x > PEN.x-margin && dog.x < PEN.x+margin;
-    const nearPenRight  = dog.x > PEN.x+PEN.w-margin && dog.x < PEN.x+PEN.w+margin;
-    const nearPenTop    = dog.y > PEN.y-margin && dog.y < PEN.y+margin;
-    const nearPenBottom = dog.y > PEN.y+PEN.h-margin && dog.y < PEN.y+PEN.h+margin;
-    const inPenYRange   = dog.y > PEN.y-margin && dog.y < PEN.y+PEN.h+margin;
-    const inPenXRange   = dog.x > PEN.x-margin && dog.x < PEN.x+PEN.w+margin;
-    const inOpeningY    = dog.y > OPENING.y && dog.y < OPENING.y+OPENING.h;
-    if(nearPenLeft  && inPenYRange && !inOpeningY) dog.x = PEN.x - margin;
-    if(nearPenRight && inPenYRange)                dog.x = PEN.x + PEN.w + margin;
-    if(nearPenTop   && inPenXRange)                dog.y = PEN.y - margin;
-    if(nearPenBottom&& inPenXRange)                dog.y = PEN.y + PEN.h + margin;
+    // 柵との衝突（内側・外側どちらからでも正しく押し出す）
+    const m=CFG.DOG_RADIUS;
+    const dogInPen=inPen(dog.x,dog.y);
+    if(dogInPen){
+      // 内側から右・上・下壁は押し返す
+      if(dog.x > PEN.x+PEN.w-m)  dog.x = PEN.x+PEN.w-m;
+      if(dog.y < PEN.y+m)         dog.y = PEN.y+m;
+      if(dog.y > PEN.y+PEN.h-m)   dog.y = PEN.y+PEN.h-m;
+      // 左壁：開口部以外のみ押し返す
+      const inOpeningY = dog.y > OPENING.y && dog.y < OPENING.y+OPENING.h;
+      if(!inOpeningY && dog.x < PEN.x+m) dog.x = PEN.x+m;
+    } else {
+      // 外側から各壁に近づいたら外側へ押し返す
+      const inYRange   = dog.y > PEN.y-m && dog.y < PEN.y+PEN.h+m;
+      const inXRange   = dog.x > PEN.x-m && dog.x < PEN.x+PEN.w+m;
+      const inOpeningY = dog.y > OPENING.y-m && dog.y < OPENING.y+OPENING.h+m;
+      // 左壁（開口部は通れる）
+      if(inYRange && !inOpeningY && dog.x > PEN.x-m && dog.x < PEN.x+m)
+        dog.x = PEN.x-m;
+      // 右壁
+      if(inYRange && dog.x > PEN.x+PEN.w-m && dog.x < PEN.x+PEN.w+m)
+        dog.x = PEN.x+PEN.w+m;
+      // 上壁
+      if(inXRange && dog.y > PEN.y-m && dog.y < PEN.y+m)
+        dog.y = PEN.y-m;
+      // 下壁
+      if(inXRange && dog.y > PEN.y+PEN.h-m && dog.y < PEN.y+PEN.h+m)
+        dog.y = PEN.y+PEN.h+m;
+    }
     dog.x=Math.max(CFG.DOG_RADIUS,Math.min(BASE_W-CFG.DOG_RADIUS,dog.x));
     dog.y=Math.max(CFG.DOG_RADIUS,Math.min(BASE_H-CFG.DOG_RADIUS,dog.y));
 
