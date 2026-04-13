@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<meta name="version" content="0.5">
-<title>ひつじあつめ v0.5</title>
+<meta name="version" content="0.6">
+<title>ひつじあつめ v0.6</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -116,11 +116,11 @@
   <h1>🐑 ひつじあつめ</h1>
   <p class="sub">犬を操作してひつじを柵の中に入れよう！<br>全頭入れたらクリア！タイムは2分です。</p>
   <button class="start-btn" id="start-btn" type="button">はじめる</button>
-  <div style="font-size:11px;color:rgba(180,230,120,0.4);margin-top:4px;">v0.5</div>
+  <div style="font-size:11px;color:rgba(180,230,120,0.4);margin-top:4px;">v0.6</div>
 </div>
 
 <script>
-const VERSION = 'v0.5';
+const VERSION = 'v0.6';
 
 // ============================================================
 //  設定
@@ -250,6 +250,7 @@ function startGame() {
   }
   timer=CFG.TIME_LIMIT; elapsed=0; allInTimer=0;
   state='playing'; updateUI();
+  requestAnimationFrame(loop); // ループ再起動
 }
 
 function inPen(x,y){ return x>PEN.x&&x<PEN.x+PEN.w&&y>PEN.y&&y<PEN.y+PEN.h; }
@@ -705,7 +706,7 @@ function loop(ts){
   }
 
   draw(totalT);
-  requestAnimationFrame(loop);
+  if(state !== 'end') requestAnimationFrame(loop);
 }
 
 // ============================================================
@@ -760,9 +761,15 @@ window.addEventListener('touchend',e=>{
 //  起動（DOM構築完了後に実行）
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
-  resize(); // DOM確定後にcanvasサイズを決定
+  resize();
   document.getElementById('start-btn').addEventListener('click', startGame);
-  requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+  // タイトル画面描画用の初期ループ（playing開始後はstartGame内のRAFが引き継ぐ）
+  function titleLoop(ts) {
+    lastTs = ts; totalT += 0.016;
+    draw(totalT);
+    if(state === 'title') requestAnimationFrame(titleLoop);
+  }
+  requestAnimationFrame(titleLoop);
 });
 </script>
 </body>
