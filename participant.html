@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>参加者入力 | お絵描き対決</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="config.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Hiragino Kaku Gothic Pro', 'Meiryo', sans-serif;
+      background: #0f0f1a;
+      color: #fff;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      align-items: center;
+    }
+
+    /* ── Top bar: topic + pixel bar ── */
+    #top-bar {
+      width: 100%;
+      max-width: 480px;
+      padding: 10px 16px 8px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    #topic-display {
+      text-align: center;
+      font-size: clamp(1.4rem, 6vw, 2rem);
+      font-weight: bold;
+      color: #fff;
+      letter-spacing: 0.08em;
+      min-height: 2.2em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #topic-display.waiting-topic { color: #555; font-size: 1rem; }
+
+    /* Pixel bar */
+    #pixel-bar-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    #pixel-bar-label {
+      font-size: 0.7rem;
+      color: #666;
+      text-align: right;
+    }
+    #pixel-bar-track {
+      width: 100%;
+      height: 10px;
+      background: #2a2a3a;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    #pixel-bar-fill {
+      height: 100%;
+      width: 100%;
+      border-radius: 5px;
+      background: linear-gradient(90deg, #4aff8a 0%, #ffcc00 70%, #ff4a4a 100%);
+      transform-origin: left;
+      transition: transform 0.1s;
+    }
+
+    /* Timer bar */
+    #timer-bar-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    #timer-bar-track {
+      width: 100%;
+      height: 6px;
+      background: #2a2a3a;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    #timer-bar-fill {
+      height: 100%;
+      width: 100%;
+      background: #4aff8a;
+      border-radius: 3px;
+      transform-origin: left;
+      transition: transform 0.5s linear;
+    }
+    #timer-bar-fill.urgent { background: #ff4a4a; }
+
+    /* ── Canvas area ── */
+    #canvas-wrap {
+      flex: 1;
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px 8px;
+      position: relative;
+    }
+
+    #drawing-canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      touch-action: none;
+      cursor: crosshair;
+      border: 2px solid #3a3a5a;
+      border-radius: 4px;
+      background: #fff;
+      display: block;
+      /* CSS size is set dynamically by JS */
+    }
+    #drawing-canvas.eraser-mode { cursor: cell; }
+
+    /* Timer overlay on canvas */
+    #timer-overlay {
+      position: absolute;
+      top: 20px;
+      right: 24px;
+      background: rgba(0,0,0,0.6);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #4aff8a;
+      pointer-events: none;
+      backdrop-filter: blur(4px);
+    }
+    #timer-overlay.urgent { color: #ff4a4a; animation: blink 0.5s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── Bottom toolbar ── */
+    #toolbar {
+      width: 100%;
+      max-width: 480px;
+      padding: 8px 16px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+      gap: 10px;
+    }
+
+    .tool-btn {
+      flex: 1;
+      height: 44px;
+      border: 2px solid #3a3a5a;
+      border-radius: 10px;
+      background: #161628;
+      color: #aaa;
+      font-size: 0.85rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+    .tool-btn.active {
+      border-color: #4a9eff;
+      color: #4a9eff;
+      background: #1a2040;
+    }
+    .tool-btn.active.eraser {
+      border-color: #ff8844;
+      color: #ff8844;
+      background: #251a10;
+    }
+    .tool-btn:active { transform: scale(0.95); }
+
+    /* ── Phase overlays ── */
+    #phase-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(10,10,26,0.92);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      text-align: center;
+      padding: 24px;
+      z-index: 10;
+    }
+    #phase-overlay.visible { display: flex; }
+    .overlay-title { font-size: 1.8rem; font-weight: bold; }
+    .overlay-sub { color: #888; font-size: 0.95rem; line-height: 1.6; }
+
+    /* Link to display */
+    #display-link {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      background: #1a1a35;
+      border: 1px solid #333;
+      color: #666;
+      font-size: 0.7rem;
+      padding: 5px 10px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-family: inherit;
+      z-index: 20;
+    }
+    #display-link:hover { color: #aaa; border-color: #555; }
+
+    .waiting-dots::after {
+      content: '...';
+      animation: dots 1.5s infinite;
+    }
+    @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <div id="top-bar">
+    <div id="topic-display" class="waiting-topic">お題をお待ちください</div>
+    <div id="pixel-bar-wrap">
+      <div id="pixel-bar-track">
+        <div id="pixel-bar-fill"></div>
+      </div>
+    </div>
+    <div id="timer-bar-wrap">
+      <div id="timer-bar-track">
+        <div id="timer-bar-fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="drawing-canvas"></canvas>
+    <div id="timer-overlay">60</div>
+  </div>
+
+  <div id="toolbar">
+    <button class="tool-btn active" id="btn-pencil" onclick="setTool('pencil')">
+      ✏️ えんぴつ
+    </button>
+    <button class="tool-btn eraser" id="btn-eraser" onclick="setTool('eraser')">
+      🩹 消しゴム
+    </button>
+    <button class="tool-btn" id="btn-clear" onclick="clearCanvas()">
+      🗑 全消し
+    </button>
+  </div>
+
+  <!-- Phase overlay (non-drawing states) -->
+  <div id="phase-overlay">
+    <div class="overlay-title" id="overlay-title">⏳ 準備中</div>
+    <div class="overlay-sub" id="overlay-sub">お題が来るまでお待ちください<span class="waiting-dots"></span></div>
+  </div>
+
+</div>
+
+<!-- Link to display screen -->
+<a id="display-link" href="display.html" target="_blank">📺 表示画面</a>
+
+<script>
+// ── Participant ID (persistent per device) ─────────────
+let participantId = localStorage.getItem('participant-id');
+if (!participantId) {
+  participantId = 'p-' + Date.now() + '-' + Math.random().toString(36).slice(2, 11);
+  localStorage.setItem('participant-id', participantId);
+}
+
+// ── Drawing state ──────────────────────────────────────
+const SIZE = CONFIG.canvasSize;
+const TOTAL_PX = SIZE * SIZE;
+let pixels = new Array(TOTAL_PX).fill(0);  // 0=white, 1=black
+let pixelCount = 0;
+let currentTool = 'pencil';  // 'pencil' | 'eraser'
+let isPointerDown = false;
+let lastIndex = -1;
+let canDraw = false;
+let gameState = null;
+let timerInterval = null;
+let saveTimeout = null;
+let prepareInterval = null;
+let drawingTotalTime = CONFIG.drawingTime;
+
+// ── Canvas setup ───────────────────────────────────────
+const canvas = document.getElementById('drawing-canvas');
+const ctx = canvas.getContext('2d');
+
+function setupCanvas() {
+  // Set pixel resolution
+  const scale = 10;
+  canvas.width = SIZE * scale;
+  canvas.height = SIZE * scale;
+
+  // Fit canvas display size to available area
+  const wrap = document.getElementById('canvas-wrap');
+  const wrapSize = Math.min(wrap.clientWidth - 24, wrap.clientHeight - 8);
+  canvas.style.width = wrapSize + 'px';
+  canvas.style.height = wrapSize + 'px';
+}
+
+window.addEventListener('load', setupCanvas);
+window.addEventListener('resize', setupCanvas);
+
+// ── Rendering ──────────────────────────────────────────
+function renderCanvas(greyPixels) {
+  const scale = canvas.width / SIZE;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Grey background (previous round's composite)
+  if (greyPixels) {
+    ctx.fillStyle = '#d0d0d0';
+    for (let i = 0; i < TOTAL_PX; i++) {
+      if (greyPixels[i] === '1') {
+        ctx.fillRect((i % SIZE) * scale, Math.floor(i / SIZE) * scale, scale, scale);
+      }
+    }
+  }
+
+  // User's drawn pixels
+  ctx.fillStyle = '#111';
+  for (let i = 0; i < TOTAL_PX; i++) {
+    if (pixels[i] === 1) {
+      ctx.fillRect((i % SIZE) * scale, Math.floor(i / SIZE) * scale, scale, scale);
+    }
+  }
+}
+
+// ── Pixel bar ──────────────────────────────────────────
+function updatePixelBar() {
+  const fill = document.getElementById('pixel-bar-fill');
+  const ratio = pixelCount / CONFIG.maxPixels;
+  // Scale the gradient bar (show remaining)
+  fill.style.transform = `scaleX(${Math.min(1, ratio)})`;
+}
+
+// ── Timer bar ──────────────────────────────────────────
+function updateTimerBar(remaining, total) {
+  const fill = document.getElementById('timer-bar-fill');
+  const ratio = Math.max(0, remaining / total);
+  fill.style.transform = `scaleX(${ratio})`;
+  fill.classList.toggle('urgent', ratio < 0.2);
+}
+
+// ── Tool selection ─────────────────────────────────────
+function setTool(tool) {
+  currentTool = tool;
+  document.getElementById('btn-pencil').className = 'tool-btn' + (tool === 'pencil' ? ' active' : '');
+  document.getElementById('btn-eraser').className = 'tool-btn eraser' + (tool === 'eraser' ? ' active' : '');
+  canvas.classList.toggle('eraser-mode', tool === 'eraser');
+}
+
+function clearCanvas() {
+  if (!canDraw) return;
+  pixels.fill(0);
+  pixelCount = 0;
+  updatePixelBar();
+  renderCanvas(gameState?.greyPixels);
+  scheduleSave();
+}
+
+// ── Drawing logic ──────────────────────────────────────
+function getGridIndex(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const relX = clientX - rect.left;
+  const relY = clientY - rect.top;
+  const gx = Math.floor(relX / rect.width * SIZE);
+  const gy = Math.floor(relY / rect.height * SIZE);
+  if (gx < 0 || gx >= SIZE || gy < 0 || gy >= SIZE) return -1;
+  return gy * SIZE + gx;
+}
+
+function applyTool(idx) {
+  if (idx < 0 || idx === lastIndex) return;
+  lastIndex = idx;
+  if (currentTool === 'pencil') {
+    if (pixels[idx] === 0 && pixelCount < CONFIG.maxPixels) {
+      pixels[idx] = 1;
+      pixelCount++;
+      updatePixelBar();
+      renderCanvas(gameState?.greyPixels);
+    }
+  } else if (currentTool === 'eraser') {
+    if (pixels[idx] === 1) {
+      pixels[idx] = 0;
+      pixelCount--;
+      updatePixelBar();
+      renderCanvas(gameState?.greyPixels);
+    }
+  }
+  scheduleSave();
+}
+
+// Mouse
+canvas.addEventListener('mousedown', e => {
+  if (!canDraw) return;
+  isPointerDown = true;
+  lastIndex = -1;
+  applyTool(getGridIndex(e.clientX, e.clientY));
+});
+canvas.addEventListener('mousemove', e => {
+  if (!canDraw || !isPointerDown) return;
+  applyTool(getGridIndex(e.clientX, e.clientY));
+});
+window.addEventListener('mouseup', () => { isPointerDown = false; lastIndex = -1; });
+
+// Touch
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!canDraw) return;
+  isPointerDown = true;
+  lastIndex = -1;
+  const t = e.touches[0];
+  applyTool(getGridIndex(t.clientX, t.clientY));
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!canDraw || !isPointerDown) return;
+  const t = e.touches[0];
+  applyTool(getGridIndex(t.clientX, t.clientY));
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  isPointerDown = false;
+  lastIndex = -1;
+}, { passive: false });
+
+// ── Save to Firestore ──────────────────────────────────
+function scheduleSave() {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(saveDrawing, 1000);
+}
+
+async function saveDrawing() {
+  if (!gameState || gameState.phase !== 'drawing') return;
+  const roundKey = `${gameState.topicNumber}-${gameState.round}`;
+  try {
+    await db.collection('participants').doc(participantId).set({
+      pixels: pixels.join(''),
+      roundKey: roundKey,
+      submittedAt: Date.now(),
+    });
+  } catch (e) { console.warn('Save failed:', e); }
+}
+
+// Force save immediately (called when time runs out)
+async function forceSave() {
+  if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
+  await saveDrawing();
+}
+
+// ── Timer management ───────────────────────────────────
+function startDrawingTimer() {
+  if (timerInterval) clearInterval(timerInterval);
+  const total = CONFIG.drawingTime;
+
+  const tick = () => {
+    if (!gameState || gameState.phase !== 'drawing') {
+      clearInterval(timerInterval); timerInterval = null; return;
+    }
+    const rem = Math.max(0, Math.ceil((gameState.drawingEndTime - Date.now()) / 1000));
+    document.getElementById('timer-overlay').textContent = rem;
+    document.getElementById('timer-overlay').classList.toggle('urgent', rem <= 10);
+    updateTimerBar(rem, total);
+
+    if (rem <= 0) {
+      clearInterval(timerInterval); timerInterval = null;
+      canDraw = false;
+      forceSave();
+    }
+  };
+  tick();
+  timerInterval = setInterval(tick, 200);
+}
+
+// ── Phase overlay ──────────────────────────────────────
+function showOverlay(title, sub) {
+  document.getElementById('overlay-title').textContent = title;
+  document.getElementById('overlay-sub').innerHTML = sub;
+  document.getElementById('phase-overlay').classList.add('visible');
+}
+
+function hideOverlay() {
+  document.getElementById('phase-overlay').classList.remove('visible');
+}
+
+// ── Firestore Listener ─────────────────────────────────
+db.collection('game').doc('session').onSnapshot(doc => {
+  if (!doc.exists) {
+    showOverlay('⏳ 準備中', 'ゲームが始まるまでお待ちください<span class="waiting-dots"></span>');
+    canDraw = false;
+    return;
+  }
+
+  const prev = gameState;
+  gameState = doc.data();
+  const phase = gameState.phase;
+
+  // お題またはラウンドが変わったらキャンバスをリセット
+  const topicChanged = prev && prev.topicNumber !== gameState.topicNumber;
+  const roundChanged = prev && prev.round !== gameState.round;
+  if (topicChanged || roundChanged) {
+    pixels.fill(0);
+    pixelCount = 0;
+    updatePixelBar();
+    // greyPixelsはOR合成の参考表示用のみ（白=0として扱う）
+    renderCanvas(gameState.greyPixels);
+  }
+
+  if (phase === 'drawing') {
+    const topic = (gameState.currentTopic || '').split(',')[0].trim();
+    document.getElementById('topic-display').textContent = topic;
+    document.getElementById('topic-display').className = '';
+    hideOverlay();
+    canDraw = true;
+    renderCanvas(gameState.greyPixels);
+    startDrawingTimer();
+  } else {
+    canDraw = false;
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
+    if (phase === 'drawing_ended') {
+      forceSave();
+      showOverlay('⏹️ 回答終了', '対決者が答えを考えています...');
+      document.getElementById('timer-overlay').textContent = '0';
+      updateTimerBar(0, CONFIG.drawingTime);
+    } else if (phase === 'countdown' || phase === 'answering') {
+      showOverlay('🤔 答え合わせ中', '対決者がイラストを見て答えを考えています');
+    } else if (phase === 'answer_reveal') {
+      showOverlay('📝 答え合わせ', '結果を確認してください');
+    } else if (phase === 'game_over') {
+      showOverlay('🏆 ゲーム終了', '結果が表示されました！');
+    } else if (phase === 'waiting') {
+      document.getElementById('topic-display').textContent = 'お題をお待ちください';
+      document.getElementById('topic-display').className = 'waiting-topic';
+      showOverlay('⏳ 次のお題を待っています', 'ゲームが開始されるまでお待ちください<span class="waiting-dots"></span>');
+      document.getElementById('timer-overlay').textContent = '—';
+      updateTimerBar(0, 1);
+    } else if (phase === 'preparing') {
+      document.getElementById('topic-display').textContent = 'お題をお待ちください';
+      document.getElementById('topic-display').className = 'waiting-topic';
+      if (prepareInterval) clearInterval(prepareInterval);
+      prepareInterval = setInterval(() => {
+        const startedAt = gameState?.prepareStartedAt || Date.now();
+        const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+        const rem = Math.max(0, CONFIG.prepareTime - elapsed);
+        showOverlay('🎨 まもなく開始！', `${rem}秒後にお題が表示されます`);
+        document.getElementById('timer-overlay').textContent = rem;
+        updateTimerBar(Math.max(0, CONFIG.prepareTime - elapsed), CONFIG.prepareTime);
+        if (rem <= 0) { clearInterval(prepareInterval); prepareInterval = null; }
+      }, 200);
+    }
+  }
+});
+</script>
+</body>
+</html>

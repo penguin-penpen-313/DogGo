@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>対決者B | お絵描き対決</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="config.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Hiragino Kaku Gothic Pro', 'Meiryo', sans-serif;
+      background: #0f0f1a;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #status-bar {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 20px;
+      background: #161628;
+      border-bottom: 2px solid #ff4a4a;
+    }
+    .player-badge {
+      background: #ff4a4a;
+      color: #fff;
+      font-weight: bold;
+      font-size: 0.85rem;
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+    .score-wrap { display: flex; gap: 16px; }
+    .score-a { color: #4a9eff; font-weight: bold; }
+    .score-b { color: #ff4a4a; font-weight: bold; }
+    .topic-num { color: #888; font-size: 0.85rem; }
+    #main {
+      width: 100%;
+      max-width: 600px;
+      padding: 24px 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .phase-screen { display: none; width: 100%; }
+    .phase-screen.active {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+    .phase-title { font-size: 1.6rem; font-weight: bold; color: #ff4a4a; }
+    .phase-sub { color: #888; font-size: 0.95rem; text-align: center; line-height: 1.6; }
+
+    .btn-primary {
+      background: #ff4a4a;
+      color: #fff;
+      border: none;
+      padding: 14px 36px;
+      font-size: 1.15rem;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: bold;
+      transition: background 0.15s;
+    }
+    .btn-primary:hover { background: #cc2a2a; }
+    .btn-primary:disabled { background: #3a3a4a; color: #666; cursor: not-allowed; }
+
+    .timer-big {
+      font-size: 4rem;
+      font-weight: bold;
+      color: #4aff8a;
+      line-height: 1;
+    }
+    .timer-big.urgent { color: #ff4a4a; animation: blink 0.5s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .timer-label { color: #888; font-size: 0.85rem; }
+
+    #countdown-number {
+      font-size: 9rem;
+      font-weight: bold;
+      color: #ff4a4a;
+      animation: pop 0.6s ease-out;
+    }
+    @keyframes pop { 0%{transform:scale(1.8);opacity:0} 100%{transform:scale(1);opacity:1} }
+
+    #composite-canvas {
+      border: 2px solid #ff4a4a;
+      image-rendering: pixelated;
+      max-width: 280px;
+      width: 100%;
+      height: auto;
+      border-radius: 4px;
+    }
+
+    .answer-box {
+      width: 100%;
+      max-width: 380px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+    }
+    .answer-box label { color: #888; font-size: 0.9rem; }
+    .answer-input {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 1.3rem;
+      border: 2px solid #ff4a4a;
+      border-radius: 8px;
+      background: #161628;
+      color: #fff;
+      text-align: center;
+      font-family: inherit;
+    }
+    .answer-input:focus { outline: none; border-color: #ff8888; }
+    .answer-input:disabled { border-color: #333; opacity: 0.5; }
+    .submit-status { font-size: 0.9rem; color: #4aff8a; min-height: 1.4em; }
+
+    .result-row {
+      width: 100%;
+      max-width: 380px;
+      background: #161628;
+      border: 2px solid #333;
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+    .result-row.correct { border-color: #4aff8a; }
+    .result-row .label { color: #888; font-size: 0.8rem; margin-bottom: 4px; }
+    .result-row .answer-text { font-size: 1.4rem; font-weight: bold; }
+    .correct-text { color: #4aff8a; }
+    .wrong-text { color: #ff6666; }
+    .topic-reveal-box {
+      background: #1e1e35;
+      border-radius: 10px;
+      padding: 12px 24px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: #888;
+    }
+    .topic-reveal-box span { color: #fff; font-size: 1.4rem; font-weight: bold; }
+
+    .winner-box {
+      border: 3px solid #ffd700;
+      border-radius: 16px;
+      padding: 28px 40px;
+      text-align: center;
+      background: #1a1a2e;
+    }
+    .winner-box .wlabel { color: #ffd700; font-size: 0.85rem; margin-bottom: 6px; }
+    .winner-box .wname { font-size: 2.4rem; font-weight: bold; }
+    .score-final-wrap { display: flex; gap: 20px; }
+    .score-final-card {
+      text-align: center;
+      padding: 16px 28px;
+      border-radius: 12px;
+      border: 2px solid;
+    }
+    .score-final-card.a { border-color: #4a9eff; }
+    .score-final-card.b { border-color: #ff4a4a; }
+    .score-final-card .slabel { font-size: 0.8rem; margin-bottom: 4px; }
+    .score-final-card.a .slabel { color: #4a9eff; }
+    .score-final-card.b .slabel { color: #ff4a4a; }
+    .score-final-card .snum { font-size: 2rem; font-weight: bold; }
+
+    .waiting-dots::after {
+      content: '...';
+      animation: dots 1.5s infinite;
+    }
+    @keyframes dots {
+      0%{content:'.'} 33%{content:'..'} 66%{content:'...'} 100%{content:'.'}
+    }
+  </style>
+</head>
+<body>
+
+<div id="status-bar">
+  <span class="player-badge">対決者 B</span>
+  <span class="topic-num" id="topic-num-disp">準備中</span>
+  <div class="score-wrap">
+    <span class="score-a" id="score-a-disp">A: 0点</span>
+    <span class="score-b" id="score-b-disp">B: 0点</span>
+  </div>
+</div>
+
+<div id="main">
+
+  <!-- INITIAL / WAITING -->
+  <div id="phase-waiting" class="phase-screen">
+    <div class="phase-title">🎯 対決者B</div>
+    <div class="phase-sub">ゲームが開始されるまでお待ちください<span class="waiting-dots"></span></div>
+  </div>
+
+  <!-- PREPARING -->
+  <div id="phase-preparing" class="phase-screen">
+    <div class="phase-title">🎨 準備してください！</div>
+    <div class="timer-big" id="prepare-timer">3</div>
+    <div class="timer-label">秒</div>
+  </div>
+
+  <!-- DRAWING -->
+  <div id="phase-drawing" class="phase-screen">
+    <div class="phase-title">🖊️ お絵描き中...</div>
+    <div class="phase-sub">参加者がお題の絵を描いています<br>対決者はお題を知ることができません</div>
+    <div class="timer-big" id="drawing-timer">60</div>
+    <div class="timer-label">秒</div>
+  </div>
+
+  <!-- DRAWING ENDED -->
+  <div id="phase-drawing-ended" class="phase-screen">
+    <div class="phase-title">✅ 回答終了！</div>
+    <div class="phase-sub">対決者Aが回答を開始します<br>しばらくお待ちください</div>
+  </div>
+
+  <!-- COUNTDOWN -->
+  <div id="phase-countdown" class="phase-screen">
+    <div class="phase-sub">イラスト公開まで...</div>
+    <div id="countdown-number">3</div>
+  </div>
+
+  <!-- ANSWERING -->
+  <div id="phase-answering" class="phase-screen">
+    <canvas id="composite-canvas"></canvas>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="timer-label">残り</span>
+      <div class="timer-big" id="answer-timer">30</div>
+      <span class="timer-label">秒</span>
+    </div>
+    <div class="answer-box">
+      <label>お題を推測して ひらがなで入力してください</label>
+      <input type="text" id="player-b-input" class="answer-input"
+             placeholder="ひらがなで入力..." maxlength="20">
+      <button class="btn-primary" id="btn-submit-b" onclick="submitAnswerB()">決定</button>
+      <div class="submit-status" id="submit-status-b"></div>
+    </div>
+  </div>
+
+  <!-- ANSWER REVEAL -->
+  <div id="phase-answer-reveal" class="phase-screen">
+    <div class="topic-reveal-box" id="reveal-topic-box" style="display:none">お題：<span id="reveal-topic"></span></div>
+    <canvas id="reveal-canvas" style="border:2px solid #333;image-rendering:pixelated;max-width:200px;width:100%;height:auto;border-radius:4px;margin-bottom:4px;"></canvas>
+    <div class="result-row" id="result-row-a">
+      <div class="label" id="label-a">対決者A の回答</div>
+      <div class="answer-text" id="result-a"></div>
+    </div>
+    <div class="result-row" id="result-row-b">
+      <div class="label" id="label-b">対決者B の回答</div>
+      <div class="answer-text" id="result-b"></div>
+    </div>
+    <div class="phase-sub" id="reveal-sub"></div>
+  </div>
+
+  <!-- GAME OVER -->
+  <div id="phase-game-over" class="phase-screen">
+    <div style="font-size:2.5rem">🏆</div>
+    <div class="winner-box" id="winner-box"></div>
+    <div class="score-final-wrap">
+      <div class="score-final-card a">
+        <div class="slabel" id="final-label-a">対決者A</div>
+        <div class="snum" id="final-a">0点</div>
+      </div>
+      <div class="score-final-card b">
+        <div class="slabel" id="final-label-b">対決者B</div>
+        <div class="snum" id="final-b">0点</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;font-size:0.9rem;color:#888;">📖 感想戦</div>
+    <div id="game-history" style="width:100%;max-width:560px;display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:8px;"></div>
+  </div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+let gameState = null;
+let timerInterval = null;
+let playerBSubmitted = false;
+
+// ── Firebase Listener ──────────────────────────────────
+db.collection('game').doc('session').onSnapshot(doc => {
+  if (!doc.exists) { showPhase('waiting'); return; }
+  gameState = doc.data();
+  updateStatusBar();
+  applyPhase(gameState.phase);
+});
+
+function applyPhase(phase) {
+  switch (phase) {
+    case 'waiting':
+      showPhase('waiting');
+      stopTimers();
+      playerBSubmitted = false;
+      break;
+    case 'preparing':
+      showPhase('preparing');
+      stopTimers();
+      syncPrepareTimer();
+      break;
+    case 'drawing':
+      showPhase('drawing');
+      runDrawingTimer();
+      break;
+    case 'drawing_ended':
+      showPhase('drawing-ended');
+      stopTimers();
+      break;
+    case 'countdown':
+      showPhase('countdown');
+      syncCountdown();
+      break;
+    case 'answering':
+      showPhase('answering');
+      renderComposite();
+      document.getElementById('player-b-input').disabled = playerBSubmitted;
+      document.getElementById('btn-submit-b').disabled = playerBSubmitted;
+      runAnswerTimer();
+      break;
+    case 'answer_reveal':
+      showPhase('answer-reveal');
+      stopTimers();
+      displayReveal();
+      break;
+    case 'game_over':
+      showPhase('game-over');
+      stopTimers();
+      displayGameOver();
+      break;
+    default:
+      showPhase('waiting');
+  }
+}
+
+function isCorrect(answer, topic) {
+  const ans = (answer || '').trim();
+  if (!ans || !topic) return false;
+  return topic.split(',').map(t => t.trim()).includes(ans);
+}
+
+function showPhase(id) {
+  document.querySelectorAll('.phase-screen').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('phase-' + id);
+  if (el) el.classList.add('active');
+}
+
+function updateStatusBar() {
+  if (!gameState) return;
+  const n = gameState.topicNumber || 0;
+  document.getElementById('topic-num-disp').textContent =
+    n > 0 ? `お題 ${n} / ${CONFIG.totalTopics}` : '準備中';
+  document.getElementById('score-a-disp').textContent = `A: ${gameState.playerAScore || 0}点`;
+  document.getElementById('score-b-disp').textContent = `B: ${gameState.playerBScore || 0}点`;
+}
+
+function stopTimers() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+function runDrawingTimer() {
+  stopTimers();
+  const tick = () => {
+    if (!gameState || gameState.phase !== 'drawing') return;
+    const rem = Math.ceil((gameState.drawingEndTime - Date.now()) / 1000);
+    const el = document.getElementById('drawing-timer');
+    if (el) { el.textContent = Math.max(0, rem); el.classList.toggle('urgent', rem <= 10); }
+  };
+  tick();
+  timerInterval = setInterval(tick, 200);
+}
+
+function syncCountdown() {
+  // Display countdown based on answerEndTime approach — just show UI
+  // The actual countdown is driven by player-a.html
+}
+
+function syncPrepareTimer() {
+  stopTimers();
+  timerInterval = setInterval(() => {
+    if (!gameState || gameState.phase !== 'preparing') { stopTimers(); return; }
+    const startedAt = gameState.prepareStartedAt || Date.now();
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    const rem = Math.max(0, CONFIG.prepareTime - elapsed);
+    const el = document.getElementById('prepare-timer');
+    if (el) el.textContent = rem;
+  }, 200);
+}
+
+function runAnswerTimer() {
+  stopTimers();
+  const tick = () => {
+    if (!gameState || gameState.phase !== 'answering') return;
+    const rem = Math.ceil((gameState.answerEndTime - Date.now()) / 1000);
+    const el = document.getElementById('answer-timer');
+    if (el) { el.textContent = Math.max(0, rem); el.classList.toggle('urgent', rem <= 10); }
+    if (rem <= 0) {
+      stopTimers();
+      // Auto-submit if not submitted
+      if (!playerBSubmitted) {
+        const val = (document.getElementById('player-b-input')?.value || '').trim();
+        playerBSubmitted = true;
+        document.getElementById('player-b-input').disabled = true;
+        document.getElementById('btn-submit-b').disabled = true;
+        document.getElementById('submit-status-b').textContent = '⏰ 時間切れ（自動送信）';
+        db.collection('game').doc('session').update({ playerBAnswer: val, playerBSubmitted: true });
+      }
+    }
+  };
+  tick();
+  timerInterval = setInterval(tick, 200);
+}
+
+function submitAnswerB() {
+  if (playerBSubmitted) return;
+  const val = document.getElementById('player-b-input').value.trim();
+  playerBSubmitted = true;
+  document.getElementById('player-b-input').disabled = true;
+  document.getElementById('btn-submit-b').disabled = true;
+  document.getElementById('submit-status-b').textContent = '✅ 回答を送信しました';
+  db.collection('game').doc('session').update({ playerBAnswer: val, playerBSubmitted: true });
+}
+
+function renderComposite() {
+  if (!gameState) return;
+  const canvas = document.getElementById('composite-canvas');
+  const size = CONFIG.canvasSize;
+  const scale = CONFIG.playerScale;
+  canvas.width = size * scale;
+  canvas.height = size * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const grey = gameState.greyPixels || '';
+  const comp = gameState.compositePixels || '';
+  for (let i = 0; i < size * size; i++) {
+    const x = (i % size) * scale, y = Math.floor(i / size) * scale;
+    if (grey[i] === '1') { ctx.fillStyle = '#ccc'; ctx.fillRect(x, y, scale, scale); }
+  }
+  for (let i = 0; i < size * size; i++) {
+    const x = (i % size) * scale, y = Math.floor(i / size) * scale;
+    if (comp[i] === '1') { ctx.fillStyle = '#111'; ctx.fillRect(x, y, scale, scale); }
+  }
+}
+
+function displayReveal() {
+  if (!gameState) return;
+  const topic = gameState.currentTopic;
+  const ansA = gameState.playerAAnswer || '（未回答）';
+  const ansB = gameState.playerBAnswer || '（未回答）';
+  const aOk = isCorrect(ansA, topic), bOk = isCorrect(ansB, topic);
+
+  // プレイヤー名
+  document.getElementById('label-a').textContent = `${CONFIG.playerAName} の回答`;
+  document.getElementById('label-b').textContent = `${CONFIG.playerBName} の回答`;
+
+  // 合成イラスト描画
+  const canvas = document.getElementById('reveal-canvas');
+  const size = CONFIG.canvasSize, scale = CONFIG.playerScale;
+  canvas.width = size * scale; canvas.height = size * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const grey = gameState.greyPixels || '';
+  const comp = gameState.compositePixels || '';
+  for (let i = 0; i < size * size; i++) {
+    const x = (i % size) * scale, y = Math.floor(i / size) * scale;
+    if (grey[i] === '1') { ctx.fillStyle = '#ccc'; ctx.fillRect(x, y, scale, scale); }
+  }
+  for (let i = 0; i < size * size; i++) {
+    const x = (i % size) * scale, y = Math.floor(i / size) * scale;
+    if (comp[i] === '1') { ctx.fillStyle = '#111'; ctx.fillRect(x, y, scale, scale); }
+  }
+
+  const someCorrect = aOk || bOk;
+  document.getElementById('reveal-topic-box').style.display = someCorrect ? '' : 'none';
+  document.getElementById('reveal-topic').textContent = someCorrect ? topic.split(',')[0] : '';
+  const rA = document.getElementById('result-a');
+  const rB = document.getElementById('result-b');
+  rA.textContent = ansA;
+  rB.textContent = ansB;
+  rA.className = 'answer-text ' + (aOk ? 'correct-text' : 'wrong-text');
+  rB.className = 'answer-text ' + (bOk ? 'correct-text' : 'wrong-text');
+  document.getElementById('result-row-a').className = 'result-row' + (aOk ? ' correct' : '');
+  document.getElementById('result-row-b').className = 'result-row' + (bOk ? ' correct' : '');
+  const sub = document.getElementById('reveal-sub');
+  const round = gameState.round || 1;
+  const maxRoundsReached = round >= (CONFIG.maxRounds || 5);
+  if (someCorrect) sub.textContent = '';
+  else if (maxRoundsReached) sub.textContent = '😢 チャレンジ上限に達しました…';
+  else sub.textContent = '😅 二人とも不正解 … もう一度チャレンジ！';
+  playerBSubmitted = false;
+}
+
+function displayGameOver() {
+  if (!gameState) return;
+  const sA = gameState.playerAScore || 0, sB = gameState.playerBScore || 0;
+  document.getElementById('final-a').textContent = `${sA}点`;
+  document.getElementById('final-b').textContent = `${sB}点`;
+  document.getElementById('final-label-a').textContent = CONFIG.playerAName;
+  document.getElementById('final-label-b').textContent = CONFIG.playerBName;
+  const box = document.getElementById('winner-box');
+  const w = gameState.winner;
+  if (w === 'draw') {
+    box.innerHTML = '<div class="wlabel">結果</div><div class="wname">引き分け！</div>';
+  } else {
+    const col = w === 'A' ? '#4a9eff' : '#ff4a4a';
+    const name = w === 'A' ? CONFIG.playerAName : CONFIG.playerBName;
+    box.innerHTML = `<div class="wlabel">🏆 勝者</div><div class="wname" style="color:${col}">${name}</div>`;
+  }
+
+  // 感想戦
+  const history = gameState.gameHistory || [];
+  const container = document.getElementById('game-history');
+  container.innerHTML = '';
+  history.forEach((item, idx) => {
+    const topicLabel = (item.topic || '').split(',')[0];
+    const div = document.createElement('div');
+    div.style.cssText = 'text-align:center;';
+    const cvs = document.createElement('canvas');
+    const size = CONFIG.canvasSize, scale = 5;
+    cvs.width = size * scale; cvs.height = size * scale;
+    cvs.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid #333;border-radius:4px;';
+    const ctx = cvs.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cvs.width, cvs.height);
+    const comp = item.composite || '';
+    for (let i = 0; i < size * size; i++) {
+      if (comp[i] === '1') {
+        const x = (i % size) * scale, y = Math.floor(i / size) * scale;
+        ctx.fillStyle = '#111'; ctx.fillRect(x, y, scale, scale);
+      }
+    }
+    const label = document.createElement('div');
+    label.style.cssText = 'font-size:0.75rem;color:#aaa;margin-top:4px;';
+    label.textContent = `${idx + 1}. ${topicLabel}`;
+    div.appendChild(cvs);
+    div.appendChild(label);
+    container.appendChild(div);
+  });
+}
+</script>
+</body>
+</html>
